@@ -26,14 +26,4 @@ function StateMachine:changeState(name)
 	end
 end
 
--- Stops the current state's timers/transitions without entering a new one.
--- Used while the player is dragging the owner around.
-function StateMachine:pause()
-	local current = self.states[self.name]
-	if current and current.exit then
-		current.exit(self.owner)
-	end
-	self.name = nil
-end
-
 return StateMachine
