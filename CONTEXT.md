@@ -26,14 +26,49 @@ The region within the island where the chicken is allowed to move — the island
 The player's pet, driven by a finite state machine. Stays within the play area's bounds at all times.
 
 **State** (chicken):
-One mode of chicken behavior — currently idle, eat, or wander — each with its own animation. The chicken is always in exactly one state.
+One mode of chicken behavior — idle, eat, wander, or held — each with its own animation. The chicken is always in exactly one state.
 
 **Dwell time**:
-How long a chicken remains in a timer-based state (idle, eat) before transitioning to the next state. Randomized per state to avoid a robotic cadence.
+How long a chicken remains in idle or wander before the state machine re-decides. Randomized per state to avoid a robotic cadence.
 _Avoid_: Duration, timer
 
 **Wander destination**:
-A random point near the chicken, within the play area's bounds, chosen when a chicken enters the wander state. Wander ends when the chicken arrives there — not on a timer, unlike other states.
+A random point near the chicken, within the play area's bounds, chosen when a chicken enters the wander state. Wander ends when the chicken arrives there — not on a timer, unlike idle/wander's dwell time.
+
+**Held**:
+The state a chicken is in while the player is dragging it. Entered by touch input rather than by the state machine's own re-decide logic; exits back into a fresh re-decide (not necessarily idle) on release.
 
 **Wiggle**:
-The feedback animation a chicken plays immediately after being dropped by the player. Pauses the chicken's state cycling until it completes.
+The feedback animation a chicken plays continuously for as long as it's held. Stops and settles flat the moment it's released.
+
+**Satiety**:
+The gauge tracking how fed a chicken is (0–100, 100 is full). Falls while idle or wandering, rises while eating. Displayed to the player as "Fullness."
+_Avoid_: Hunger (inverted sense — high hunger would mean *unfed*, which is the opposite convention every gauge in this game uses)
+
+**Cleanliness**:
+The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings currently exist, so cleaning a dropping raises the target and cleanliness recovers toward it over time, rather than being restored directly by the act of cleaning.
+
+**Happiness**:
+A chicken's overall well-being, computed on read from satiety, cleanliness, and the pet buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
+_Avoid_: Mood, wellbeing
+
+**Dropping**:
+An individual mess a chicken leaves on the island, spawned by the poop clock. Persists as its own object until tapped away.
+_Avoid_: Poop, mess (dropping is the canonical term; use it consistently even though "poop clock" keeps the informal word for the timer's name)
+
+**Poop clock**:
+The recurring, FSM-independent timer that rolls a chance each cycle to spawn a new dropping. Odds increase the longer it's been since the last successful roll, and after the chicken has eaten recently.
+
+**Pet buff**:
+A temporary happiness boost applied when the player taps a chicken (the same tap that opens its tooltip). Petting again while the buff is still active is a no-op — it neither extends the remaining time nor stacks a second bonus.
+
+**Time scale**:
+A debug-only multiplier on every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
+
+**World object**:
+An entity that lives in the game world and is depth-sorted against other world objects — currently the chicken and its droppings, with more object types expected later. The island's ground tiles and screen-space UI (the tooltip, the debug button) are not world objects — they always render in their own fixed layers, never depth-sorted.
+_Avoid_: Entity, game object (too generic — use world object specifically for things that participate in depth sorting)
+
+**Depth**:
+A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).
+_Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the value it sorts by)
