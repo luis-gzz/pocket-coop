@@ -1,4 +1,5 @@
 local Constants = require("src.constants")
+local Layout = require("src.layout")
 local CORNER_FRAMES = require("src.grass_autotile_frames")
 
 local Island = {}
@@ -18,10 +19,11 @@ local sheet = graphics.newImageSheet(SHEET_PATH, {
 local TILE_SIZE = Constants.TILE_SIZE
 local FALLBACK_KEY = "FULL|FULL|FULL|FULL"
 
--- How much of the safe area the island occupies, and how it's positioned
+-- How much of the space left after carving out the top/bottom UI bands
+-- (src/layout.lua, ADR-0008) the island occupies, and how it's positioned
 -- within whatever margin that leaves.
 local WIDTH_FRACTION = 1.0
-local HEIGHT_FRACTION = 0.92
+local HEIGHT_FRACTION = 1.0
 
 -- Every island tile is grass for now; a position outside the grid counts as
 -- a different terrain, which is exactly what gives the island a bordered
@@ -60,21 +62,12 @@ local function pickFrame(col, row, columns, rows)
 	return frames[math.random(#frames)]
 end
 
-local function getSafeRect()
-	local topInset, leftInset, bottomInset, rightInset = display.getSafeAreaInsets()
-	return {
-		minX = display.screenOriginX + leftInset,
-		maxX = display.screenOriginX + display.actualContentWidth - rightInset,
-		minY = display.screenOriginY + topInset,
-		maxY = display.screenOriginY + display.actualContentHeight - bottomInset,
-	}
-end
-
 -- Fits a whole number of tiles into WIDTH_FRACTION/HEIGHT_FRACTION of the
--- safe area (so the border tiles are never cut off mid-tile), positioned
--- top-justified and horizontally centered within it.
+-- space left after the top/bottom UI bands (so the border tiles are never
+-- cut off mid-tile), positioned top-justified and horizontally centered
+-- within it.
 local function getLayout()
-	local safeRect = getSafeRect()
+	local safeRect = Layout.getIslandSafeRect()
 	local safeWidth = safeRect.maxX - safeRect.minX
 	local safeHeight = safeRect.maxY - safeRect.minY
 

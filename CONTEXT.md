@@ -46,7 +46,7 @@ The gauge tracking how fed a chicken is (0–100, 100 is full). Falls while idle
 _Avoid_: Hunger (inverted sense — high hunger would mean *unfed*, which is the opposite convention every gauge in this game uses)
 
 **Cleanliness**:
-The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings currently exist, so cleaning a dropping raises the target and cleanliness recovers toward it over time, rather than being restored directly by the act of cleaning.
+The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it over time, rather than being restored directly by the act of cleaning.
 
 **Happiness**:
 A chicken's overall well-being, computed on read from satiety, cleanliness, and the pet buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
@@ -59,6 +59,9 @@ _Avoid_: Poop, mess (dropping is the canonical term; use it consistently even th
 **Poop clock**:
 The recurring, FSM-independent timer that rolls a chance each cycle to spawn a new dropping. Odds increase the longer it's been since the last successful roll, and after the chicken has eaten recently.
 
+**Lay clock**:
+The recurring, FSM-independent timer that rolls a chance each cycle for a hen to lay an egg, mirroring the poop clock's shape exactly. Gated by a minimum happiness and a refractory period since the hen's last lay; stores that last lay as a timestamp, not a countdown, the same way the poop clock's own timing state works.
+
 **Pet buff**:
 A temporary happiness boost applied when the player taps a chicken (the same tap that opens its tooltip). Petting again while the buff is still active is a no-op — it neither extends the remaining time nor stacks a second bonus.
 
@@ -66,9 +69,34 @@ A temporary happiness boost applied when the player taps a chicken (the same tap
 A debug-only multiplier on every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
 **World object**:
-An entity that lives in the game world and is depth-sorted against other world objects — currently the chicken and its droppings, with more object types expected later. The island's ground tiles and screen-space UI (the tooltip, the debug button) are not world objects — they always render in their own fixed layers, never depth-sorted.
+An entity that lives in the game world and is depth-sorted against other world objects — currently the chicken, its droppings, hen beds, and eggs, with more object types expected later. The island's ground tiles and screen-space UI (the tooltip, the debug button, the egg counter, the toolbar) are not world objects — they always render in their own fixed layers, never depth-sorted.
 _Avoid_: Entity, game object (too generic — use world object specifically for things that participate in depth sorting)
 
 **Depth**:
 A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).
 _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the value it sorts by)
+
+## Egg laying
+
+**Hen bed**:
+A placeable world object, added via the toolbar, that a laying hen's egg goes into when one is available. Holds at most one egg at a time — occupied while it does, open otherwise. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead.
+_Avoid_: Bed, nest (hen bed is the canonical term, to stay unambiguous alongside other future toolbar items)
+
+**Egg**:
+A collectable world object produced by a hen's lay clock. Sits either in a hen bed (tidy — doesn't affect cleanliness) or on the ground as a floor egg. Tapping either kind collects it: increments the egg counter, removes the egg, and frees its bed if it had one.
+
+**Floor egg**:
+An egg that landed outside a hen bed, because every bed was occupied or none existed yet. Counted toward the cleanliness target as a dirty item, weighted the same as a dropping — collecting it removes that penalty automatically.
+_Avoid_: Loose egg, ground egg
+
+**Coop**:
+The single shared owner of every placed hen bed and every active egg, plus the player's collected-egg count. Decides where a newly laid egg goes, and is where saving happens on a lay, a collect, or a placement. Distinct from a hen's own gauges: gauges gate *when* a hen lays, Coop decides *where* the egg ends up, since beds and eggs belong to the coop as a whole, not to any one hen (see ADR-0007).
+
+**Toolbar**:
+The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an icon and drag into the play area to place its item there for free; dropping outside the play area cancels. Hen bed is its only entry so far — adding another item is meant to be one more definition, not new UI code.
+
+**Egg counter**:
+The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.
+
+**UI band**:
+One of two fixed-height strips of the camera, above and below the island, reserved for on-screen controls — the egg counter on top, the toolbar on the bottom — rather than gameplay. Distinct from the Backdrop: a band holds interactive UI, while the backdrop is purely atmospheric.

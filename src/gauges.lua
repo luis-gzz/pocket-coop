@@ -1,3 +1,5 @@
+local Coop = require("src.coop")
+
 -- Per-chicken satiety/cleanliness/happiness model. Pure data + rates, no
 -- display objects here (see src/dropping.lua for the visual side) - keeps
 -- this module the single place gauge math happens (ADR-0003).
@@ -38,12 +40,27 @@ local MAX_RAW_DT = 0.25 -- seconds
 local PET_BUFF_AMOUNT = 20
 local PET_BUFF_DURATION = 5 * 60 -- seconds
 
+-- Lay clock: a recurring, FSM-independent chance to lay an egg (CONTEXT.md),
+-- shaped just like the poop clock above - an accumulator rolling a check
+-- every LAY_CLOCK_INTERVAL. Gauges only gates WHEN a hen lays; src/coop.lua
+-- decides WHERE the egg goes (ADR-0007).
+local LAY_CLOCK_INTERVAL = 60 -- seconds between rolls
+local LAY_HAPPINESS_GATE = 33 -- below this happiness, no laying at all
+local LAY_REFRACTORY = 3 * 60 -- seconds since the last lay before laying is possible again
+local LAY_HAPPINESS_MIN_FACTOR = 0.15 -- happiness_factor right at the happiness gate
+local LAY_TIME_BASE = 0.3 -- time_factor right at the end of the refractory window
+local LAY_TIME_STEP = 0.2 -- time_factor gained per minute past the refractory window
+
 -- Happiness: weighted average of satiety/cleanliness where the worse of the
 -- two pulls harder (lower K = harsher penalty for a lopsided pair).
 local HAPPINESS_K = 12
 
 local function clamp100(value)
 	return math.max(0, math.min(100, value))
+end
+
+local function clamp01(value)
+	return math.max(0, math.min(1, value))
 end
 
 -- saved: an optional table (from src/save.lua) to resume from. All fields
@@ -61,6 +78,8 @@ function Gauges.new(saved)
 	self.cyclesSincePoop = saved.cyclesSincePoop or 0
 	self.poopClockAccumulator = saved.poopClockAccumulator or 0
 	self.lastAteAt = saved.lastAteAt or -math.huge
+	self.lastLayAt = saved.lastLayAt or -math.huge
+	self.layClockAccumulator = saved.layClockAccumulator or 0
 	self.now = saved.now or 0
 
 	self.isEating = false
@@ -96,6 +115,35 @@ local function rollPoopClock(self)
 	return false
 end
 
+-- Gates on happiness and refractory period, then rolls a chance that rises
+-- with both happiness and time since the last lay. On success, records the
+-- new lastLayAt (also closing the refractory gate for any other roll later
+-- in the same update() call, so a burst of intervals can produce at most
+-- one lay).
+local function rollLayClock(self)
+	local happiness = self:getHappiness()
+	if happiness < LAY_HAPPINESS_GATE then
+		return false
+	end
+
+	local secondsSinceLastLay = self.now - self.lastLayAt
+	if secondsSinceLastLay < LAY_REFRACTORY then
+		return false
+	end
+
+	local happinessNorm = (happiness - LAY_HAPPINESS_GATE) / (100 - LAY_HAPPINESS_GATE)
+	local happinessFactor = LAY_HAPPINESS_MIN_FACTOR + (1 - LAY_HAPPINESS_MIN_FACTOR) * happinessNorm
+	local minutesPastRefractory = (secondsSinceLastLay - LAY_REFRACTORY) / 60
+	local timeFactor = clamp01(LAY_TIME_BASE + minutesPastRefractory * LAY_TIME_STEP)
+	local layChance = clamp01(happinessFactor * timeFactor)
+
+	if math.random() < layChance then
+		self.lastLayAt = self.now
+		return true
+	end
+	return false
+end
+
 -- Offsets (x, y) by a random point inside DROPPING_JITTER_RADIUS, so
 -- droppings spawned close together in time don't land on the exact same
 -- pixel.
@@ -118,7 +166,8 @@ function Gauges:update(dt, timeScale, chickenX, chickenY)
 		self.lastAteAt = self.now
 	end
 
-	local target = clamp100(100 - #self.droppings * CLEAN_PENALTY_PER_DROPPING)
+	local dirtyItemCount = #self.droppings + Coop.getFloorEggCount()
+	local target = clamp100(100 - dirtyItemCount * CLEAN_PENALTY_PER_DROPPING)
 	self.cleanliness = self.cleanliness + (target - self.cleanliness) * CLEAN_EASE_RATE * scaledDt
 
 	local spawned = {}
@@ -133,7 +182,16 @@ function Gauges:update(dt, timeScale, chickenX, chickenY)
 		end
 	end
 
-	return spawned
+	local laid = false
+	self.layClockAccumulator = self.layClockAccumulator + scaledDt
+	while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
+		self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
+		if rollLayClock(self) then
+			laid = true
+		end
+	end
+
+	return spawned, laid
 end
 
 function Gauges:removeDropping(record)
@@ -172,6 +230,8 @@ function Gauges:getSaveData()
 		cyclesSincePoop = self.cyclesSincePoop,
 		poopClockAccumulator = self.poopClockAccumulator,
 		lastAteAt = self.lastAteAt,
+		lastLayAt = self.lastLayAt,
+		layClockAccumulator = self.layClockAccumulator,
 		now = self.now,
 	}
 end
