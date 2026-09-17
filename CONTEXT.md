@@ -103,4 +103,4 @@ _Avoid_: Tile (already the island's ground-unit term), button
 The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.
 
 **UI band**:
-One of two fixed-height strips of the camera, above and below the island, reserved for on-screen controls — the egg counter on top, the toolbar on the bottom — rather than gameplay. Distinct from the Backdrop: a band holds interactive UI, while the backdrop is purely atmospheric.
+One of two strips of the camera, above and below the island, reserved for on-screen controls — the egg counter on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the island claims its target share of the safe area's height, not a fixed height of their own. Distinct from the Backdrop: a band holds interactive UI, while the backdrop is purely atmospheric.

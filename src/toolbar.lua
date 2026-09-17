@@ -23,10 +23,10 @@ local SLOT_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 -- Every item gets the same fixed-size square slot regardless of its own
 -- icon's dimensions - the resting icon inside is scaled down to fit (see
 -- containFit), decoupling toolbar row layout from any one item's art size.
--- Sized a few units under Layout.BOTTOM_BAND_HEIGHT (20) so the vertical
--- margin above/below reads clearly as centering rather than disappearing
--- into the stroke.
-local SLOT_SIZE = 14 * Constants.PIXEL_SCALE
+-- The bottom band's height is derived from the island's leftover space
+-- (ADR-0009), not fixed, so this is sized to comfortably fit within it on
+-- real devices rather than pinned a few units under a fixed band height.
+local SLOT_SIZE = 22 * Constants.PIXEL_SCALE
 local SLOT_PADDING = 2 * Constants.PIXEL_SCALE
 
 -- ms; matches chicken.lua's/coop.lua's own long-press threshold - held here
