@@ -93,7 +93,11 @@ _Avoid_: Loose egg, ground egg
 The single shared owner of every placed hen bed and every active egg, plus the player's collected-egg count. Decides where a newly laid egg goes, and is where saving happens on a lay, a collect, or a placement. Distinct from a hen's own gauges: gauges gate *when* a hen lays, Coop decides *where* the egg ends up, since beds and eggs belong to the coop as a whole, not to any one hen (see ADR-0007).
 
 **Toolbar**:
-The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an icon and drag into the play area to place its item there for free; dropping outside the play area cancels. Hen bed is its only entry so far — adding another item is meant to be one more definition, not new UI code.
+The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an item's slot and drag into the play area to place its item there for free; dropping outside the play area cancels. Hen bed is its only entry so far — adding another item is meant to be one more definition, not new UI code.
+
+**Slot**:
+The Toolbar's fixed-size, uniform square background behind each item's icon. Tapping and holding anywhere within a slot's bounds — not just on its icon — starts that item's drag. An item's icon renders shrunk to fit inside its slot; the dragged ghost still renders at the item's true world size.
+_Avoid_: Tile (already the island's ground-unit term), button
 
 **Egg counter**:
 The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.

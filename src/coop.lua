@@ -10,12 +10,10 @@ local Wiggle = require("src.wiggle")
 -- (ADR-0007).
 local Coop = {}
 
-local BED_IMAGE_PATH = "assets/objects/eggplace.png"
+local BED_IMAGE_PATH = "assets/objects/bed1.png"
 local BED_NATIVE_WIDTH, BED_NATIVE_HEIGHT = 23, 15
 local BED_WIDTH = BED_NATIVE_WIDTH * Constants.PIXEL_SCALE
 local BED_HEIGHT = BED_NATIVE_HEIGHT * Constants.PIXEL_SCALE
-Coop.BED_WIDTH = BED_WIDTH
-Coop.BED_HEIGHT = BED_HEIGHT
 
 local EGG_IMAGE_PATH = "assets/fauna/ChickenEgg.png"
 local EGG_NATIVE_WIDTH, EGG_NATIVE_HEIGHT = 7, 8
@@ -253,6 +251,17 @@ function Coop.placeBed(x, y)
 	save()
 	return bed
 end
+
+-- The toolbar's descriptor for this item (CONTEXT.md's "Toolbar"): icon,
+-- footprint, and its place/isValidPosition callbacks bundled together so
+-- toolbar.lua never needs to know a bed's own image path or dimensions.
+Coop.BED_ITEM = {
+	icon = BED_IMAGE_PATH,
+	width = BED_WIDTH,
+	height = BED_HEIGHT,
+	place = Coop.placeBed,
+	isValidPosition = Coop.isValidBedPosition,
+}
 
 -- Called by a hen's Gauges when its lay clock fires (ADR-0007). x, y is the
 -- hen's position at the moment of laying. Placement priority: nearest open
