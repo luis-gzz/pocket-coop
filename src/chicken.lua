@@ -4,8 +4,10 @@ local Island = require("src.island")
 local YSort = require("src.y_sort")
 local Gauges = require("src.gauges")
 local Dropping = require("src.dropping")
+local Coop = require("src.coop")
 local TimeScale = require("src.time_scale")
 local Tooltip = require("src.tooltip")
+local Wiggle = require("src.wiggle")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -253,9 +255,12 @@ function Chicken:setupUpdateLoop()
 		local dt = (event.time - lastFrameTime) / 1000
 		lastFrameTime = event.time
 
-		local spawned = self.gauges:update(dt, TimeScale.get(), self.view.x, self.view.y)
+		local spawned, laid = self.gauges:update(dt, TimeScale.get(), self.view.x, self.view.y)
 		for _, record in ipairs(spawned) do
 			self:addDroppingView(record)
+		end
+		if laid then
+			Coop.hatchEgg(self.view.x, self.view.y)
 		end
 
 		if self.machine.name == "eat" and self.gauges:isFull() then
@@ -341,30 +346,15 @@ end
 -- flat on the ground.
 function Chicken:startWiggle()
 	self.isHeld = true
-
-	local body = self.body
-	local nextAngle = WIGGLE_ANGLE
-	local function step()
-		if not self.isHeld then
-			return
-		end
-		self.wiggleHandle = transition.to(body, {
-			rotation = nextAngle,
-			time = WIGGLE_STEP_TIME,
-			onComplete = step,
-		})
-		nextAngle = -nextAngle
-	end
-	step()
+	self.wiggleHandle = Wiggle.start(self.body, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
+		return self.isHeld
+	end)
 end
 
 function Chicken:stopWiggle()
 	self.isHeld = false
-	if self.wiggleHandle then
-		transition.cancel(self.wiggleHandle)
-		self.wiggleHandle = nil
-	end
-	transition.to(self.body, { rotation = 0, time = WIGGLE_STEP_TIME })
+	Wiggle.stop(self.wiggleHandle)
+	self.wiggleHandle = nil
 end
 
 STATES = {

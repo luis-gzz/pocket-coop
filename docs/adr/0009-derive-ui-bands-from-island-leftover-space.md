@@ -1,0 +1,7 @@
+# UI bands are derived from the island's real leftover space, not fixed heights
+
+ADR-0008 gave the top/bottom UI bands fixed native-pixel heights and had the island fill whatever safe-area space was left after carving them out. That breaks down once a band's contents need more room than its fixed height allows (the toolbar's slot recently grew past the old bottom band height) and, more fundamentally, the island doesn't always fill its full share of the safe area — its width/height are floored to whole tiles, so a fixed-height bottom band isn't actually where the island's last tile ends.
+
+We're reversing the order: the island is generated first, sized to fill ~87% of the safe area's height (floored to whole tiles, same fitting logic as before), and the top/bottom bands are then computed from whatever vertical space is actually left over, split evenly between them (extra remainder pixel to the bottom band). This makes `layout.lua` the sole owner of the spatial math — it now computes the island's rect/column/row data itself instead of `island.lua` computing it and `layout.lua` only knowing about fixed bands, which avoids a circular dependency between the two modules. `island.lua` no longer decides its own size; it just renders tiles into the rect `layout.lua` hands it.
+
+The 50/50 leftover split is an intentional placeholder, expected to be tuned later. No minimum band height is enforced yet, consistent with this project's existing acceptance of a cramped layout on constrained devices as a tradeoff to revisit if playtesting finds it too crowded.

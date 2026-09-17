@@ -1,4 +1,5 @@
 local Constants = require("src.constants")
+local Layout = require("src.layout")
 local CORNER_FRAMES = require("src.grass_autotile_frames")
 
 local Island = {}
@@ -17,11 +18,6 @@ local sheet = graphics.newImageSheet(SHEET_PATH, {
 
 local TILE_SIZE = Constants.TILE_SIZE
 local FALLBACK_KEY = "FULL|FULL|FULL|FULL"
-
--- How much of the safe area the island occupies, and how it's positioned
--- within whatever margin that leaves.
-local WIDTH_FRACTION = 1.0
-local HEIGHT_FRACTION = 0.92
 
 -- Every island tile is grass for now; a position outside the grid counts as
 -- a different terrain, which is exactly what gives the island a bordered
@@ -60,43 +56,10 @@ local function pickFrame(col, row, columns, rows)
 	return frames[math.random(#frames)]
 end
 
-local function getSafeRect()
-	local topInset, leftInset, bottomInset, rightInset = display.getSafeAreaInsets()
-	return {
-		minX = display.screenOriginX + leftInset,
-		maxX = display.screenOriginX + display.actualContentWidth - rightInset,
-		minY = display.screenOriginY + topInset,
-		maxY = display.screenOriginY + display.actualContentHeight - bottomInset,
-	}
-end
-
--- Fits a whole number of tiles into WIDTH_FRACTION/HEIGHT_FRACTION of the
--- safe area (so the border tiles are never cut off mid-tile), positioned
--- top-justified and horizontally centered within it.
-local function getLayout()
-	local safeRect = getSafeRect()
-	local safeWidth = safeRect.maxX - safeRect.minX
-	local safeHeight = safeRect.maxY - safeRect.minY
-
-	local columns = math.max(1, math.floor((safeWidth * WIDTH_FRACTION) / TILE_SIZE))
-	local rows = math.max(1, math.floor((safeHeight * HEIGHT_FRACTION) / TILE_SIZE))
-
-	local width = columns * TILE_SIZE
-	local height = rows * TILE_SIZE
-	local minX = safeRect.minX + (safeWidth - width) / 2
-	local minY = safeRect.minY
-
-	return {
-		rect = { minX = minX, maxX = minX + width, minY = minY, maxY = minY + height },
-		columns = columns,
-		rows = rows,
-	}
-end
-
 -- The rectangle the chicken is allowed to move within: the full island
 -- rectangle, except the bottom edge is pulled in by half a tile.
 function Island.getInnerBounds()
-	local layout = getLayout()
+	local layout = Layout.getIslandRect()
 	local rect = layout.rect
 	return {
 		minX = rect.minX,
@@ -106,13 +69,13 @@ function Island.getInnerBounds()
 	}
 end
 
--- Tiles a rectangle sized to a fraction of the safe area with the grass
--- autotile set. Each tile's art is picked from GrassHills.png based on which
--- of its 8 neighbors fall outside the island grid, using the corner bitmask
--- decoded from assets/GrassTileset/Autotile_BitmaskRef1.png.
+-- Tiles the rect Layout.getIslandRect() hands back with the grass autotile
+-- set. Each tile's art is picked from GrassHills.png based on which of its 8
+-- neighbors fall outside the island grid, using the corner bitmask decoded
+-- from assets/GrassTileset/Autotile_BitmaskRef1.png.
 function Island.create()
 	local group = display.newGroup()
-	local layout = getLayout()
+	local layout = Layout.getIslandRect()
 	local rect = layout.rect
 
 	for row = 0, layout.rows - 1 do
