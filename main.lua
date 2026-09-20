@@ -12,6 +12,7 @@ local Island = require("src.island")
 local YSort = require("src.y_sort")
 local Chicken = require("src.chicken")
 local Coop = require("src.coop")
+local Feed = require("src.feed")
 local Hud = require("src.hud")
 local Toolbar = require("src.toolbar")
 local Save = require("src.save")
@@ -21,17 +22,15 @@ local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
 Island.create()
 
--- World objects (chicken, droppings, hen beds, eggs) live in this group and
--- depth-sort against each other (ADR-0005). Created after the background
--- and before any world object, so the group sits above the island and below
--- whatever's created after it (the UI bands, the debug overlay, and the
--- tooltip when it opens).
+-- World objects (chicken, droppings, hen beds, eggs, food) depth-sort
+-- against each other in this group (ADR-0005).
 YSort.createGroup()
 
--- The save file is {chicken = ..., world = ...} - the chicken's own gauge
--- data alongside Coop's shared beds/eggs/collected-count (ADR-0007).
+-- The save file is {chicken = ..., world = ..., feed = ...} (ADR-0007,
+-- ADR-0011). Feed loads before Chicken so it's visible on the first decide.
 local saved = Save.load()
 Coop.load(saved and saved.world)
+Feed.load(saved and saved.feed)
 local chicken = Chicken.new(saved and saved.chicken)
 
 Hud.create()
@@ -42,13 +41,13 @@ if DEBUG_MODE then
 end
 
 local function saveNow()
-	Save.write({ chicken = chicken:getSaveData(), world = Coop.getSaveData() })
+	Save.write({ chicken = chicken:getSaveData(), world = Coop.getSaveData(), feed = Feed.getSaveData() })
 end
 
--- Coop saves immediately on a lay, a collect, or a placement (not just the
--- periodic/suspend saves below), so a kill between a lay and a collect can't
--- lose the egg or rewind the refractory clock.
+-- Coop and Feed each save immediately on their own discrete events, not
+-- just the periodic/suspend saves below.
 Coop.setSaveCallback(saveNow)
+Feed.setSaveCallback(saveNow)
 
 timer.performWithDelay(AUTOSAVE_INTERVAL, saveNow, 0)
 

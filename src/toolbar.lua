@@ -1,6 +1,7 @@
 local Constants = require("src.constants")
 local Layout = require("src.layout")
 local Coop = require("src.coop")
+local Feed = require("src.feed")
 local Wiggle = require("src.wiggle")
 local Color = require("src.color")
 
@@ -37,6 +38,9 @@ local WIGGLE_STEP_TIME = 90
 
 local ITEMS = {
 	Coop.BED_ITEM,
+	Feed.SEED_ITEM,
+	Feed.LETTUCE_ITEM,
+	Feed.MEALWORM_ITEM,
 }
 
 -- Preserve-aspect-ratio, centered ("contain") fit of (width, height) into a
