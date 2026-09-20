@@ -1,0 +1,5 @@
+# Chance-based eating replaces the enter/exit threshold hysteresis
+
+Eating used to flip on a fixed pair of thresholds: enter Eat below 50 satiety, stay until 80. Placed food (src/feed.lua) needed a second, higher ceiling - 100 with a food source available, 50 while only foraging - and a fixed enter/exit pair can't express "the ceiling itself changes": clamping satiety at the lower ceiling would either trap a foraging chicken exactly at 50 forever once it got there, or (with the exit threshold above the forage ceiling) never let it stop eating at all.
+
+We replaced both thresholds with a chance roll: `rollWantsToEat` on every re-decide, weighted linearly by how far satiety sits below whichever ceiling is in force, and `rollShouldStopEating` about once a second while eating, weighted by how close it's gotten (squared, so an early meal doesn't end almost immediately). This is a deliberate removal, not an oversight - the old thresholds looked like a considered anti-flicker measure, and a future reader tempted to restore them should know the fixed-pair shape is what made a second ceiling impossible to express cleanly in the first place.

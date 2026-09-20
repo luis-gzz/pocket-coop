@@ -5,6 +5,7 @@ local YSort = require("src.y_sort")
 local Gauges = require("src.gauges")
 local Dropping = require("src.dropping")
 local Coop = require("src.coop")
+local Feed = require("src.feed")
 local TimeScale = require("src.time_scale")
 local Tooltip = require("src.tooltip")
 local Wiggle = require("src.wiggle")
@@ -31,8 +32,9 @@ local GROUND_OFFSET = (SPRITE_SIZE / 2) * DISPLAY_SCALE
 
 local SELECTED_PATH = "assets/fauna/CHICKEN/chickeSelected.png"
 
+-- Shown in the tooltip's buff row while a happiness buff is active.
 local HEART_PATH = "assets/fauna/heart.png"
-local HEART_WIDTH, HEART_HEIGHT = 9 * DISPLAY_SCALE, 9 * DISPLAY_SCALE
+local HEART_ICON_SIZE = 9 * DISPLAY_SCALE
 
 local IDLE_DWELL = { min = 2, max = 4 } -- seconds
 local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not forced to eat
@@ -40,9 +42,17 @@ local WANDER_MIN_RADIUS = 20
 local WANDER_MAX_RADIUS = 60
 local WANDER_SPEED = 40 -- points per second
 
+-- How far past a food source's edge a chicken stands to eat, randomized so
+-- repeat visits don't land on the same spot.
+local EAT_STANDOFF_MIN_JITTER = 2
+local EAT_STANDOFF_MAX_JITTER = 8
+
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
+
+-- How long a chicken plays the eat animation after finishing a mealworm.
+local TREAT_EAT_DURATION = 2000 -- ms
 
 local STATES -- assigned near the bottom, after the methods it calls exist
 
@@ -78,19 +88,48 @@ local function pickWanderDestination(chicken)
 	return x, y
 end
 
--- Once satiety is comfortable, idle/wander alternate on a weighted flip
--- instead of a fixed round-robin; hungry always wins via hysteresis (enter
--- below EAT_ENTER_THRESHOLD, stay until above EAT_EXIT_THRESHOLD - see
--- src/gauges.lua). While selected (its tooltip is open), wander is dropped
--- entirely so it can't drift away mid-conversation.
+-- Picks a point just past a food item's edge, in a random direction, so the
+-- chicken stands slightly to the side rather than on dead center (which
+-- would obscure a small item like a mealworm from view entirely).
+local function pickEatingSpot(target)
+	local angle = math.random() * math.pi * 2
+	local jitter = EAT_STANDOFF_MIN_JITTER + math.random() * (EAT_STANDOFF_MAX_JITTER - EAT_STANDOFF_MIN_JITTER)
+	local radius = target.width / 2 + jitter
+	local bounds = getBounds()
+	local x = clamp(target.x + math.cos(angle) * radius, bounds.minX, bounds.maxX)
+	local y = clamp(target.y + math.sin(angle) * radius, bounds.minY, bounds.maxY)
+	return x, y
+end
+
+-- Whether to eat at all is a chance roll (src/gauges.lua's rollWantsToEat)
+-- against the food ceiling if a source exists, the forage ceiling otherwise.
 local function decideNextState(chicken)
-	if chicken.gauges:isHungry() then
-		return "eat"
+	local hasSource = Feed.hasFoodSource()
+	local ceiling = hasSource and Gauges.FOOD_CEILING or Gauges.FORAGE_CEILING
+	if chicken.gauges:rollWantsToEat(ceiling) then
+		local target = hasSource and Feed.findNearestSource(chicken.view.x, chicken.view.y) or nil
+		chicken:setFoodTarget(target)
+		if target then
+			return "approach"
+		end
+		return "eat" -- nothing placed (or it vanished a moment ago) - forage in place
 	end
+
+	chicken:setFoodTarget(nil)
 	if chicken.selected then
 		return "idle"
 	end
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
+end
+
+-- Applies the treat's payoff and removes it immediately; the chicken still
+-- lingers in "eatTreat" afterward to play the eat animation.
+local function consumeTreat(chicken)
+	local target = chicken.foodTarget
+	chicken.gauges:applyTreatSatiety()
+	chicken.gauges:applyHappinessBuff()
+	Feed.consumeTreat(target)
+	chicken:setFoodTarget(nil)
 end
 
 local function buildSprite(path, numFrames, frameTime)
@@ -140,10 +179,11 @@ function Chicken.new(saved)
 	self.selectedIndicator.y = SPRITE_SIZE / 2
 	self.selectedIndicator.isVisible = false
 
-	-- A dedicated hit target for touch/setFocus: Solar2D's touch focus can be
-	-- unreliable on a bare display.newGroup() (no drawable content of its
-	-- own), which showed up as taps silently doing nothing.
-	self.hitArea = display.newRect(self.view, 0, 0, SPRITE_SIZE, SPRITE_SIZE)
+	-- A dedicated hit target (a bare group's touch focus is unreliable), kept
+	-- as a world-group sibling and pushed toFront() every frame for touch priority.
+	self.hitArea = display.newRect(
+		YSort.getGroup(), self.view.x, self.view.y, SPRITE_SIZE * DISPLAY_SCALE, SPRITE_SIZE * DISPLAY_SCALE
+	)
 	self.hitArea:setFillColor(0, 0, 0, 0.01)
 
 	-- Everything but the shadow lives in body, since that's the part that
@@ -190,14 +230,30 @@ function Chicken:setFacing(direction)
 	end
 end
 
--- While selected (its tooltip is open), the chicken can only idle/eat - see
--- decideNextState. Cuts a wander already in progress short so it can't drift
--- away right as the tooltip appears.
+-- Opening the tooltip stops whatever the chicken was doing and drops it to idle.
 function Chicken:setSelected(value)
 	self.selected = value
 	self.selectedIndicator.isVisible = value
-	if value and self.machine.name == "wander" then
+	if value and self.machine.name ~= "idle" and self.machine.name ~= "held" then
+		self:setFoodTarget(nil)
 		self.machine:changeState("idle")
+	end
+end
+
+-- Releases a superseded treat's claim before adopting a new target.
+function Chicken:setFoodTarget(newTarget)
+	local old = self.foodTarget
+	if old and old ~= newTarget and old.kind == "treat" then
+		Feed.releaseTreatClaim(old)
+	end
+	self.foodTarget = newTarget
+end
+
+-- Re-enters "approach" so a chicken following a dragged treat re-paths
+-- toward its live position.
+function Chicken:retargetApproach()
+	if self.machine.name == "approach" then
+		self.machine:changeState("approach")
 	end
 end
 
@@ -215,39 +271,17 @@ function Chicken:addDroppingView(record)
 	table.insert(self.droppingViews, dropping)
 end
 
--- Applied on every short tap (see setupTouch), in addition to opening the
--- tooltip. A no-op while the pet buff is already active, so repeat taps
--- neither extend the buff nor replay the heart bubble animation.
-function Chicken:pet()
-	if self.gauges:isPetBuffActive() then
-		return
-	end
-	self.gauges:applyPetBuff()
-	self:showHeartBubble()
-end
-
-function Chicken:showHeartBubble()
-	local heart = display.newImageRect(HEART_PATH, HEART_WIDTH, HEART_HEIGHT)
-	heart.x = self.view.x
-	heart.y = self.view.y - SPRITE_SIZE * DISPLAY_SCALE
-	transition.to(heart, {
-		y = heart.y - 20,
-		alpha = 0,
-		time = 800,
-		onComplete = function()
-			heart:removeSelf()
-		end,
-	})
-end
-
--- Drives the gauges every frame (independent of FSM state - satiety etc.
--- keep updating while held, per the design), spawns visuals for any new
--- droppings, and forces an exit out of Eat once satiety is comfortable
--- again (Eat has no dwell timer of its own; see src/gauges.lua).
+-- Drives the gauges every frame, debits any food source being eaten from,
+-- and checks for a nearby treat alert.
 function Chicken:setupUpdateLoop()
 	local lastFrameTime = nil
 
 	local function onFrame(event)
+		-- Keeps the hit target glued to the chicken and always frontmost.
+		self.hitArea.x = self.view.x
+		self.hitArea.y = self.view.y
+		self.hitArea:toFront()
+
 		if not lastFrameTime then
 			lastFrameTime = event.time
 			return
@@ -255,7 +289,7 @@ function Chicken:setupUpdateLoop()
 		local dt = (event.time - lastFrameTime) / 1000
 		lastFrameTime = event.time
 
-		local spawned, laid = self.gauges:update(dt, TimeScale.get(), self.view.x, self.view.y)
+		local spawned, laid, delivered = self.gauges:update(dt, TimeScale.get(), self.view.x, self.view.y)
 		for _, record in ipairs(spawned) do
 			self:addDroppingView(record)
 		end
@@ -263,8 +297,22 @@ function Chicken:setupUpdateLoop()
 			Coop.hatchEgg(self.view.x, self.view.y)
 		end
 
-		if self.machine.name == "eat" and self.gauges:isFull() then
-			self.machine:changeState(decideNextState(self))
+		-- Debits the food source by the satiety actually delivered this frame.
+		if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
+			if not Feed.deplete(self.foodTarget, delivered) then
+				self:setFoodTarget(nil)
+				self.machine:changeState(decideNextState(self))
+			end
+		end
+
+		-- A treat alert is checked every frame and preempts whatever the
+		-- chicken is doing, except while held.
+		if self.machine.name ~= "held" then
+			local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
+			if claimed then
+				self:setFoodTarget(claimed)
+				self.machine:changeState("approach")
+			end
 		end
 	end
 
@@ -325,11 +373,28 @@ function Chicken:setupTouch()
 					self.longPressHandle = nil
 					self.pendingTouch = nil
 					if event.phase == "ended" then
-						-- Show the tooltip first so the heart bubble (created
-						-- by pet(), with no explicit parent group) is inserted
-						-- after it and renders on top instead of underneath.
-						Tooltip.show(self)
-						self:pet()
+						Tooltip.show({
+							x = self.view.x,
+							y = self.view.y,
+							onShow = function()
+								self:setSelected(true)
+							end,
+							onHide = function()
+								self:setSelected(false)
+							end,
+							rows = {
+								{ label = "Fullness", getValue = function() return self.gauges.satiety end },
+								{ label = "Cleanliness", getValue = function() return self.gauges.cleanliness end },
+								{ label = "Happiness", getValue = function() return self.gauges:getHappiness() end },
+							},
+							buffs = {
+								{
+									icon = HEART_PATH,
+									size = HEART_ICON_SIZE,
+									isActive = function() return self.gauges:isHappinessBuffActive() end,
+								},
+							},
+						})
 					end
 				elseif self.machine.name == "held" then
 					self.machine:changeState(decideNextState(self))
@@ -339,6 +404,12 @@ function Chicken:setupTouch()
 		return true
 	end
 	hitArea:addEventListener("touch", onTouch)
+
+	-- Solar2D hit-tests "tap" separately from "touch" and skips objects with
+	-- no "tap" listener - this blocks a tap falling through to what's underneath.
+	hitArea:addEventListener("tap", function()
+		return true
+	end)
 end
 
 -- Wiggles continuously while the chicken is held; stopWiggle() settles it
@@ -373,13 +444,87 @@ STATES = {
 		end,
 	},
 
+	-- Walks to a claimed food item; arrival hands off to "eat" for a source
+	-- or consumes a treat outright.
+	approach = {
+		enter = function(chicken)
+			local target = chicken.foodTarget
+			if not target or target.removed then
+				chicken:setFoodTarget(nil)
+				chicken.machine:changeState(decideNextState(chicken))
+				return
+			end
+
+			chicken:setAnimation("walk")
+
+			local destX, destY = pickEatingSpot(target)
+			chicken:setFacing(destX < chicken.view.x and -1 or 1)
+
+			local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
+			local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
+
+			chicken.transitionHandle = transition.to(chicken.view, {
+				x = destX,
+				y = destY,
+				time = duration,
+				onComplete = function()
+					chicken.transitionHandle = nil
+					if not chicken.foodTarget or chicken.foodTarget.removed then
+						chicken:setFoodTarget(nil)
+						chicken.machine:changeState(decideNextState(chicken))
+					elseif chicken.foodTarget.kind == "treat" then
+						consumeTreat(chicken)
+						chicken.machine:changeState("eatTreat")
+					else
+						chicken.machine:changeState("eat")
+					end
+				end,
+			})
+		end,
+		exit = function(chicken)
+			if chicken.transitionHandle then
+				transition.cancel(chicken.transitionHandle)
+				chicken.transitionHandle = nil
+			end
+		end,
+	},
+
+	-- Eating in place, from a claimed source or foraging with no target.
+	-- Rolls about once a second for whether to stop.
 	eat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
-			chicken.gauges:setEating(true)
+			local ceiling = chicken.foodTarget and Gauges.FOOD_CEILING or Gauges.FORAGE_CEILING
+			chicken.gauges:setEating(true, ceiling)
+			chicken.eatStopTimerHandle = timer.performWithDelay(1000, function()
+				if chicken.gauges:rollShouldStopEating() then
+					chicken:setFoodTarget(nil)
+					chicken.machine:changeState(decideNextState(chicken))
+				end
+			end, 0)
 		end,
 		exit = function(chicken)
 			chicken.gauges:setEating(false)
+			if chicken.eatStopTimerHandle then
+				timer.cancel(chicken.eatStopTimerHandle)
+				chicken.eatStopTimerHandle = nil
+			end
+		end,
+	},
+
+	-- Plays the eat animation for a fixed duration after finishing a mealworm.
+	eatTreat = {
+		enter = function(chicken)
+			chicken:setAnimation("eat")
+			chicken.eatTreatTimerHandle = timer.performWithDelay(TREAT_EAT_DURATION, function()
+				chicken.machine:changeState(decideNextState(chicken))
+			end)
+		end,
+		exit = function(chicken)
+			if chicken.eatTreatTimerHandle then
+				timer.cancel(chicken.eatTreatTimerHandle)
+				chicken.eatTreatTimerHandle = nil
+			end
 		end,
 	},
 
@@ -414,6 +559,8 @@ STATES = {
 	held = {
 		enter = function(chicken)
 			chicken:setAnimation("idle")
+			-- Being picked up releases any food target/claim.
+			chicken:setFoodTarget(nil)
 			chicken:startWiggle()
 		end,
 		exit = function(chicken)

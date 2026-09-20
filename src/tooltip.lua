@@ -1,9 +1,8 @@
 local Constants = require("src.constants")
 local Color = require("src.color")
 
--- A small popover anchored to a tapped chicken: three live gauge bars.
--- Petting happens on the tap that opens this (see Chicken:pet), not from a
--- button here. Only one can be open at a time.
+-- A small popover anchored to a world point: a labeled, live-refreshed bar
+-- per row, plus an optional active-buff icon row. Only one can be open at a time.
 local Tooltip = {}
 
 -- All spatial constants below are native * Constants.PIXEL_SCALE, like every
@@ -25,28 +24,17 @@ local PANEL_FILL_HEX = "f2f0e5"
 local PANEL_STROKE_HEX = "3a3858"
 local BAR_FILL_HEX = "8ab060"
 
-local CHICKEN_GAP = 10 * Constants.PIXEL_SCALE -- vertical gap kept between the chicken and the panel
--- Half-height buffer approximating the chicken's on-screen size, used to
--- detect whether the panel (after edge-clamping) would cover the chicken.
-local CHICKEN_CLEARANCE = 8 * Constants.PIXEL_SCALE
+local ANCHOR_GAP = 10 * Constants.PIXEL_SCALE -- vertical gap kept between the anchor point and the panel
+-- Half-height buffer approximating the anchor's on-screen size, used to
+-- detect whether the panel (after edge-clamping) would cover it.
+local ANCHOR_CLEARANCE = 8 * Constants.PIXEL_SCALE
 
--- Active-buff icon row, shown left-justified in the panel's top padding
--- strip. Each entry is an icon + an isActive(gauges) predicate, so only
--- currently-active buffs are drawn. Pet is the only buff today; adding
--- another later is just appending another entry here.
+-- Active-buff icon row, shown left-justified when content.buffs is given;
+-- only currently-active buffs are drawn.
 local BUFF_ICON_MARGIN_TOP = 3.5 * Constants.PIXEL_SCALE
 local BUFF_ICON_GAP = 2 * Constants.PIXEL_SCALE
-local BUFFS = {
-	{
-		icon = "assets/fauna/heart.png",
-		size = 9 * Constants.PIXEL_SCALE,
-		isActive = function(gauges)
-			return gauges:isPetBuffActive()
-		end,
-	},
-}
 
-local current = nil -- { dismiss, group, refresh, chicken }
+local current = nil -- { dismiss, group, refresh, content }
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
@@ -79,13 +67,18 @@ function Tooltip.hide()
 	Runtime:removeEventListener("enterFrame", current.refresh)
 	current.dismiss:removeSelf()
 	current.group:removeSelf()
-	current.chicken:setSelected(false)
+	if current.content.onHide then
+		current.content.onHide()
+	end
 	current = nil
 end
 
-function Tooltip.show(chicken)
+-- content: { x, y, rows, buffs?, onShow?, onHide? } - see chicken.lua/feed.lua for shape.
+function Tooltip.show(content)
 	Tooltip.hide()
-	chicken:setSelected(true)
+	if content.onShow then
+		content.onShow()
+	end
 
 	-- Full-screen, nearly-invisible tap target behind the panel, so tapping
 	-- anywhere else dismisses the tooltip. Sized/centered directly (rather
@@ -111,31 +104,43 @@ function Tooltip.show(chicken)
 		end)
 	end)
 
+	local rows = content.rows
+	local buffs = content.buffs or {}
+
+	local function anyBuffActive()
+		for _, buff in ipairs(buffs) do
+			if buff.isActive() then
+				return true
+			end
+		end
+		return false
+	end
+
+	-- No active buff means no reserved top strip at all.
+	local topPadding = anyBuffActive() and PANEL_PADDING_TOP or 0
+
 	local panelWidth = BAR_WIDTH + PANEL_PADDING * 2
-	local panelHeight = ROW_HEIGHT * 3 + PANEL_PADDING_TOP + PANEL_PADDING + PANEL_PADDING_BOTTOM
+	local panelHeight = ROW_HEIGHT * #rows + topPadding + PANEL_PADDING + PANEL_PADDING_BOTTOM
 
 	local group = display.newGroup()
 
-	-- Prefer centering over / floating above the chicken, but clamp on all
-	-- four sides so the panel always renders fully within the visible
-	-- screen even when the chicken is near an edge or corner.
+	-- Prefer centering above the anchor, clamped on all sides so the panel
+	-- always stays fully on screen.
 	local minX = display.screenOriginX + EDGE_MARGIN
 	local maxX = display.screenOriginX + display.actualContentWidth - panelWidth - EDGE_MARGIN
-	group.x = clamp(chicken.view.x - panelWidth / 2, minX, maxX)
+	group.x = clamp(content.x - panelWidth / 2, minX, maxX)
 
 	local minY = display.screenOriginY + EDGE_MARGIN
 	local maxY = display.screenOriginY + display.actualContentHeight - panelHeight - EDGE_MARGIN
 
-	local aboveY = clamp(chicken.view.y - panelHeight - CHICKEN_GAP, minY, maxY)
-	-- Edge-clamping (e.g. the chicken is right at the top of the screen) can
-	-- push the "above" position down far enough that the chicken ends up
-	-- inside the panel's own vertical span. When that would happen, flip to
-	-- below the chicken instead so the panel never covers it.
-	local chickenTop = chicken.view.y - CHICKEN_CLEARANCE
-	local chickenBottom = chicken.view.y + CHICKEN_CLEARANCE
-	local wouldCoverChicken = aboveY < chickenBottom and (aboveY + panelHeight) > chickenTop
-	if wouldCoverChicken then
-		group.y = clamp(chicken.view.y + CHICKEN_GAP, minY, maxY)
+	local aboveY = clamp(content.y - panelHeight - ANCHOR_GAP, minY, maxY)
+	-- If clamping would push the panel down far enough to cover the anchor,
+	-- flip to below it instead.
+	local anchorTop = content.y - ANCHOR_CLEARANCE
+	local anchorBottom = content.y + ANCHOR_CLEARANCE
+	local wouldCoverAnchor = aboveY < anchorBottom and (aboveY + panelHeight) > anchorTop
+	if wouldCoverAnchor then
+		group.y = clamp(content.y + ANCHOR_GAP, minY, maxY)
 	else
 		group.y = aboveY
 	end
@@ -149,7 +154,7 @@ function Tooltip.show(chicken)
 	-- icon starts hidden; refresh() below shows only the active ones.
 	local buffIcons = {}
 	local buffX = PANEL_PADDING
-	for _, buff in ipairs(BUFFS) do
+	for _, buff in ipairs(buffs) do
 		local icon = display.newImageRect(group, buff.icon, buff.size, buff.size)
 		icon.anchorX = 0
 		icon.anchorY = 0
@@ -163,25 +168,26 @@ function Tooltip.show(chicken)
 	local contentGroup = display.newGroup()
 	group:insert(contentGroup)
 	contentGroup.x = PANEL_PADDING
-	contentGroup.y = PANEL_PADDING_TOP
+	contentGroup.y = topPadding
 
-	local satietyFill = makeBar(contentGroup, "Fullness", 0)
-	local cleanlinessFill = makeBar(contentGroup, "Cleanliness", ROW_HEIGHT)
-	local happinessFill = makeBar(contentGroup, "Happiness", ROW_HEIGHT * 2)
+	local fills = {}
+	for index, row in ipairs(rows) do
+		local fill = makeBar(contentGroup, row.label, (index - 1) * ROW_HEIGHT)
+		table.insert(fills, { fill = fill, getValue = row.getValue })
+	end
 
 	local function refresh()
-		local gauges = chicken.gauges
-		satietyFill.width = math.max(1, BAR_WIDTH * (gauges.satiety / 100))
-		cleanlinessFill.width = math.max(1, BAR_WIDTH * (gauges.cleanliness / 100))
-		happinessFill.width = math.max(1, BAR_WIDTH * (gauges:getHappiness() / 100))
+		for _, entry in ipairs(fills) do
+			entry.fill.width = math.max(1, BAR_WIDTH * (entry.getValue() / 100))
+		end
 		for _, entry in ipairs(buffIcons) do
-			entry.view.isVisible = entry.def.isActive(gauges)
+			entry.view.isVisible = entry.def.isActive()
 		end
 	end
 	refresh()
 	Runtime:addEventListener("enterFrame", refresh)
 
-	current = { dismiss = dismiss, group = group, refresh = refresh, chicken = chicken }
+	current = { dismiss = dismiss, group = group, refresh = refresh, content = content }
 end
 
 return Tooltip

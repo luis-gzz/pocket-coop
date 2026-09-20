@@ -6,11 +6,29 @@ local Coop = require("src.coop")
 local Gauges = {}
 Gauges.__index = Gauges
 
--- Satiety: falls while idle/wander, rises while eating.
+-- Satiety: falls while idle/wander, rises while eating, capped at whichever
+-- ceiling is in force (see rollWantsToEat/rollShouldStopEating).
 local SATIETY_DECAY_RATE = 100 / 240 -- empty over 4 minutes of not eating
 local SATIETY_EAT_RATE = 100 / 30 -- full over 30 seconds of active eating
-local EAT_ENTER_THRESHOLD = 50 -- enter Eat once satiety drops below this
-local EAT_EXIT_THRESHOLD = 80 -- stay in Eat until satiety climbs above this
+local SATIETY_FORAGE_CEILING = 50 -- forage's satiety cap
+local SATIETY_FOOD_CEILING = 100
+
+-- Exposed so src/chicken.lua can pick which ceiling to roll against.
+Gauges.FORAGE_CEILING = SATIETY_FORAGE_CEILING
+Gauges.FOOD_CEILING = SATIETY_FOOD_CEILING
+
+-- Stop-eating chance is (satiety/ceiling)^exponent (see rollShouldStopEating).
+-- Forage's exponent is higher than food's so satiety climbs closer to the
+-- lower forage ceiling before the chance to quit gets meaningful.
+local STOP_CHANCE_EXPONENT_FOOD = 2
+local STOP_CHANCE_EXPONENT_FORAGE = 3
+
+-- Start-eating chance is ((ceiling-satiety)/ceiling)^exponent (see
+-- rollWantsToEat). Forage's exponent is above 1 so the chance stays low
+-- until satiety is genuinely low, rather than triggering readily at only
+-- moderate hunger.
+local START_CHANCE_EXPONENT_FOOD = 1
+local START_CHANCE_EXPONENT_FORAGE = 1.6
 
 -- Cleanliness: eases toward a target set by how many droppings exist
 -- (ADR-0004), rather than draining directly.
@@ -35,10 +53,11 @@ local DROPPING_JITTER_RADIUS = 10 -- world points; scatters spawns near the chic
 -- rates while bounding worst-case bursts.
 local MAX_RAW_DT = 0.25 -- seconds
 
--- Pet buff: flat happiness bonus with an expiry, refreshed (not stacked) by
--- re-petting.
-local PET_BUFF_AMOUNT = 20
-local PET_BUFF_DURATION = 5 * 60 -- seconds
+-- Happiness buff: a flat, temporary bonus with an expiry, not stacked by a
+-- repeat grant. Currently only a mealworm grants one.
+local HAPPINESS_BUFF_AMOUNT = 25
+local HAPPINESS_BUFF_DURATION = 5 * 60 -- seconds
+local TREAT_SATIETY_BONUS = 25
 
 -- Lay clock: a recurring, FSM-independent chance to lay an egg (CONTEXT.md),
 -- shaped just like the poop clock above - an accumulator rolling a check
@@ -55,8 +74,12 @@ local LAY_TIME_STEP = 0.2 -- time_factor gained per minute past the refractory w
 -- two pulls harder (lower K = harsher penalty for a lopsided pair).
 local HAPPINESS_K = 12
 
+local function clamp(value, low, high)
+	return math.max(low, math.min(high, value))
+end
+
 local function clamp100(value)
-	return math.max(0, math.min(100, value))
+	return clamp(value, 0, 100)
 end
 
 local function clamp01(value)
@@ -73,7 +96,7 @@ function Gauges.new(saved)
 
 	self.satiety = saved.satiety or 100
 	self.cleanliness = saved.cleanliness or 100
-	self.petBuffExpiresAt = saved.petBuffExpiresAt or 0
+	self.happinessBuffExpiresAt = saved.happinessBuffExpiresAt or 0
 	self.droppings = saved.droppings or {}
 	self.cyclesSincePoop = saved.cyclesSincePoop or 0
 	self.poopClockAccumulator = saved.poopClockAccumulator or 0
@@ -83,20 +106,37 @@ function Gauges.new(saved)
 	self.now = saved.now or 0
 
 	self.isEating = false
+	self.eatCeiling = SATIETY_FOOD_CEILING
+	self.eatStopExponent = STOP_CHANCE_EXPONENT_FOOD
 
 	return self
 end
 
-function Gauges:setEating(isEating)
+-- ceiling: the satiety cap for this bout of eating (SATIETY_FOOD_CEILING or
+-- SATIETY_FORAGE_CEILING). Ignored while isEating is false.
+function Gauges:setEating(isEating, ceiling)
 	self.isEating = isEating
+	self.eatCeiling = ceiling or SATIETY_FOOD_CEILING
+	self.eatStopExponent = (self.eatCeiling == SATIETY_FORAGE_CEILING)
+		and STOP_CHANCE_EXPONENT_FORAGE or STOP_CHANCE_EXPONENT_FOOD
 end
 
-function Gauges:isHungry()
-	return self.satiety < EAT_ENTER_THRESHOLD
+-- Chance to start eating, weighted by how far satiety sits below `ceiling` -
+-- 100% at empty, 0% at or above it.
+function Gauges:rollWantsToEat(ceiling)
+	local exponent = (ceiling == SATIETY_FORAGE_CEILING) and START_CHANCE_EXPONENT_FORAGE or START_CHANCE_EXPONENT_FOOD
+	local chance = clamp01((ceiling - self.satiety) / ceiling) ^ exponent
+	return math.random() < chance
 end
 
-function Gauges:isFull()
-	return self.satiety >= EAT_EXIT_THRESHOLD
+-- Chance to stop eating, rolled about once a second while eating, so an
+-- early meal doesn't end almost immediately.
+function Gauges:rollShouldStopEating()
+	if self.satiety >= self.eatCeiling then
+		return true
+	end
+	local chance = clamp01(self.satiety / self.eatCeiling) ^ self.eatStopExponent
+	return math.random() < chance
 end
 
 local function rollPoopClock(self)
@@ -153,18 +193,20 @@ local function jitteredPosition(x, y)
 	return x + math.cos(angle) * radius, y + math.sin(angle) * radius
 end
 
--- Advances the simulation by dt real seconds (scaled by the debug time
--- scale). Returns any dropping records newly spawned this call, so the
--- caller can create their visuals.
+-- Advances the simulation by dt seconds. Returns spawned droppings, whether
+-- a lay happened, and satiety delivered this call.
 function Gauges:update(dt, timeScale, chickenX, chickenY)
 	local scaledDt = math.min(dt, MAX_RAW_DT) * (timeScale or 1)
 	self.now = self.now + scaledDt
 
-	local satietyRate = self.isEating and SATIETY_EAT_RATE or -SATIETY_DECAY_RATE
-	self.satiety = clamp100(self.satiety + satietyRate * scaledDt)
+	local satietyBefore = self.satiety
 	if self.isEating then
+		self.satiety = clamp(self.satiety + SATIETY_EAT_RATE * scaledDt, 0, self.eatCeiling)
 		self.lastAteAt = self.now
+	else
+		self.satiety = clamp100(self.satiety - SATIETY_DECAY_RATE * scaledDt)
 	end
+	local delivered = math.max(0, self.satiety - satietyBefore)
 
 	local dirtyItemCount = #self.droppings + Coop.getFloorEggCount()
 	local target = clamp100(100 - dirtyItemCount * CLEAN_PENALTY_PER_DROPPING)
@@ -191,7 +233,22 @@ function Gauges:update(dt, timeScale, chickenX, chickenY)
 		end
 	end
 
-	return spawned, laid
+	return spawned, laid, delivered
+end
+
+-- Permanent satiety bump from a mealworm, uncapped by the forage ceiling.
+function Gauges:applyTreatSatiety()
+	self.satiety = clamp100(self.satiety + TREAT_SATIETY_BONUS)
+end
+
+-- Grants the happiness buff (see isHappinessBuffActive) - currently only
+-- called when a chicken finishes eating a mealworm.
+function Gauges:applyHappinessBuff()
+	self.happinessBuffExpiresAt = self.now + HAPPINESS_BUFF_DURATION
+end
+
+function Gauges:isHappinessBuffActive()
+	return self.now < self.happinessBuffExpiresAt
 end
 
 function Gauges:removeDropping(record)
@@ -203,29 +260,21 @@ function Gauges:removeDropping(record)
 	end
 end
 
-function Gauges:applyPetBuff()
-	self.petBuffExpiresAt = self.now + PET_BUFF_DURATION
-end
-
-function Gauges:isPetBuffActive()
-	return self.now < self.petBuffExpiresAt
-end
-
 function Gauges:getHappiness()
 	local satiety, cleanliness = self.satiety, self.cleanliness
 	local weightSatiety = (100 - satiety) + HAPPINESS_K
 	local weightCleanliness = (100 - cleanliness) + HAPPINESS_K
 	local base = (weightSatiety * satiety + weightCleanliness * cleanliness) / (weightSatiety + weightCleanliness)
 
-	local petBuff = self:isPetBuffActive() and PET_BUFF_AMOUNT or 0
-	return clamp100(base + petBuff)
+	local happinessBuff = self:isHappinessBuffActive() and HAPPINESS_BUFF_AMOUNT or 0
+	return clamp100(base + happinessBuff)
 end
 
 function Gauges:getSaveData()
 	return {
 		satiety = self.satiety,
 		cleanliness = self.cleanliness,
-		petBuffExpiresAt = self.petBuffExpiresAt,
+		happinessBuffExpiresAt = self.happinessBuffExpiresAt,
 		droppings = self.droppings,
 		cyclesSincePoop = self.cyclesSincePoop,
 		poopClockAccumulator = self.poopClockAccumulator,
