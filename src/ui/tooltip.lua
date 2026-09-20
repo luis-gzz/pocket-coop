@@ -1,5 +1,5 @@
-local Constants = require("src.constants")
-local Color = require("src.color")
+local Constants = require("src.util.constants")
+local Color = require("src.util.color")
 
 -- A small popover anchored to a world point: a labeled, live-refreshed bar
 -- per row, plus an optional active-buff icon row. Only one can be open at a time.
