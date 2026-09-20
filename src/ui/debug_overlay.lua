@@ -1,8 +1,9 @@
-local TimeScale = require("src.time_scale")
-local Constants = require("src.constants")
+local Clock = require("src.systems.clock")
+local Constants = require("src.util.constants")
 
 -- A small corner button that opens a popover of discrete time-scale
--- presets, for tuning. Owns no game logic - purely pokes TimeScale.
+-- presets, for tuning. Owns no game logic - purely pokes Clock's debug
+-- time-scale multiplier.
 local DebugOverlay = {}
 
 -- All spatial constants below are native * Constants.PIXEL_SCALE, like every
@@ -34,7 +35,7 @@ function DebugOverlay.create()
 	toggleLabel:setFillColor(0, 0, 0)
 
 	local function refreshLabel()
-		toggleLabel.text = "Debug " .. TimeScale.get() .. "x"
+		toggleLabel.text = "Debug " .. Clock.getTimeScale() .. "x"
 	end
 	refreshLabel()
 
@@ -53,7 +54,7 @@ function DebugOverlay.create()
 		hidePopover()
 
 		-- Same full-screen-dismiss-rect-with-a-frame-deferred-listener pattern
-		-- as src/tooltip.lua, so the tap that opens this popover doesn't also
+		-- as src/ui/tooltip.lua, so the tap that opens this popover doesn't also
 		-- generate a synthesized "tap" that instantly closes it.
 		local dismiss = display.newRect(
 			display.screenOriginX + display.actualContentWidth / 2,
@@ -76,7 +77,7 @@ function DebugOverlay.create()
 		group.y = y + TOGGLE_HEIGHT + POPOVER_GAP
 
 		local buttonX = 0
-		for _, preset in ipairs(TimeScale.PRESETS) do
+		for _, preset in ipairs(Clock.PRESETS) do
 			local button = display.newRoundedRect(group, buttonX, 0, BUTTON_WIDTH, BUTTON_HEIGHT, CORNER_RADIUS)
 			button.anchorX = 0
 			button.anchorY = 0
@@ -88,7 +89,7 @@ function DebugOverlay.create()
 			label:setFillColor(0, 0, 0)
 
 			button:addEventListener("tap", function()
-				TimeScale.set(preset)
+				Clock.setTimeScale(preset)
 				refreshLabel()
 				return true
 			end)

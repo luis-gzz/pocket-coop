@@ -53,7 +53,7 @@ A chicken's overall well-being, computed on read from satiety, cleanliness, and 
 _Avoid_: Mood, wellbeing
 
 **Dropping**:
-An individual mess a chicken leaves on the island, spawned by the poop clock. Persists as its own object until tapped away.
+An individual mess a chicken leaves on the island, spawned by the poop clock. Persists as its own object until tapped away. Belongs to the garden, not the chicken that made it — every chicken's cleanliness counts every dropping on the island, not just its own (see ADR-0012).
 _Avoid_: Poop, mess (dropping is the canonical term; use it consistently even though "poop clock" keeps the informal word for the timer's name)
 
 **Poop clock**:
@@ -66,8 +66,11 @@ The recurring, FSM-independent timer that rolls a chance each cycle for a hen to
 A flat, temporary happiness boost with an expiry. Granting one again while it's still active is a no-op — it neither extends the remaining time nor stacks a second bonus. A mealworm treat is the only source so far.
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
 
+**Clock**:
+The single source of simulated time every chicken's gauges advance against, replacing each chicken computing its own frame delta independently. Also owns the debug time scale below, since scaling time is part of the same "what does a second of sim time mean right now" concern.
+
 **Time scale**:
-A debug-only multiplier on every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
+A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
 **World object**:
 An entity that lives in the game world and is depth-sorted against other world objects — currently the chicken, its droppings, hen beds, eggs, and food items, with more object types expected later. The island's ground tiles and screen-space UI (the tooltip, the debug button, the egg counter, the toolbar) are not world objects — they always render in their own fixed layers, never depth-sorted.
@@ -90,8 +93,9 @@ A collectable world object produced by a hen's lay clock. Sits either in a hen b
 An egg that landed outside a hen bed, because every bed was occupied or none existed yet. Counted toward the cleanliness target as a dirty item, weighted the same as a dropping — collecting it removes that penalty automatically.
 _Avoid_: Loose egg, ground egg
 
-**Coop**:
-The single shared owner of every placed hen bed and every active egg, plus the player's collected-egg count. Decides where a newly laid egg goes, and is where saving happens on a lay, a collect, or a placement. Distinct from a hen's own gauges: gauges gate *when* a hen lays, Coop decides *where* the egg ends up, since beds and eggs belong to the coop as a whole, not to any one hen (see ADR-0007).
+**Garden**:
+The single shared owner of every chicken, every placed hen bed, every active egg, and every dropping, plus the player's collected-egg count, with Feed held alongside it for the food side. Decides where a newly laid egg goes and whose cleanliness a dropping counts against, and is where saving happens on a lay, a collect, a placement, or a dropping spawning/being cleaned. Distinct from a hen's own gauges: gauges gate *when* a hen lays or poops, Garden decides *where* the result goes and *who* it affects, since beds, eggs, and droppings belong to the garden as a whole, not to any one hen (see ADR-0007, ADR-0012).
+_Avoid_: Coop (retired — beds/eggs/droppings are no longer a separate owner from the chickens themselves)
 
 **Toolbar**:
 The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an item's slot and drag into the play area to place its item there for free; dropping outside the play area cancels. Hen bed, seed patch, lettuce, and mealworm are its entries so far — adding another item is meant to be one more definition, not new UI code.
@@ -137,4 +141,4 @@ The state a chicken is in while walking to a food item it has picked. Unlike a w
 _Avoid_: Seek, travel, pathing
 
 **Feed**:
-The single shared owner of every placed food item, and the one place a hungry chicken asks what there is to eat. Answers with a food item or with nothing — and nothing is what sends the chicken to forage. Sibling to Coop: Coop owns the egg side of the world, Feed owns the food side (see ADR-0011).
+The single shared owner of every placed food item, and the one place a hungry chicken asks what there is to eat. Answers with a food item or with nothing — and nothing is what sends the chicken to forage. Owned by Garden alongside its chicken/bed/egg/dropping state — Garden owns everything else in the world, Feed owns the food side (see ADR-0011).

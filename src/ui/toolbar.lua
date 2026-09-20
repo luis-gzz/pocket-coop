@@ -1,9 +1,9 @@
-local Constants = require("src.constants")
-local Layout = require("src.layout")
-local Coop = require("src.coop")
-local Feed = require("src.feed")
-local Wiggle = require("src.wiggle")
-local Color = require("src.color")
+local Constants = require("src.util.constants")
+local Layout = require("src.ui.layout")
+local Catalog = require("src.ui.catalog")
+local Garden = require("src.systems.garden")
+local Wiggle = require("src.util.wiggle")
+local Color = require("src.util.color")
 
 -- The bottom UI band's control for placing world objects (CONTEXT.md):
 -- reads from ITEMS below instead of hardcoding the hen bed, so a future
@@ -30,18 +30,13 @@ local SLOT_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 local SLOT_SIZE = 22 * Constants.PIXEL_SCALE
 local SLOT_PADDING = 2 * Constants.PIXEL_SCALE
 
--- ms; matches chicken.lua's/coop.lua's own long-press threshold - held here
+-- ms; matches chicken.lua's/bed.lua's own long-press threshold - held here
 -- as toolbar.lua's own copy rather than shared, same as their angle/timing.
 local LONG_PRESS_TIME = 350
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
-local ITEMS = {
-	Coop.BED_ITEM,
-	Feed.SEED_ITEM,
-	Feed.LETTUCE_ITEM,
-	Feed.MEALWORM_ITEM,
-}
+local ITEMS = Catalog
 
 -- Preserve-aspect-ratio, centered ("contain") fit of (width, height) into a
 -- square box of availableSize. Used to derive a slot's resting-icon size
@@ -80,11 +75,11 @@ function Toolbar.create()
 		icon.x = SLOT_SIZE / 2
 		icon.y = SLOT_SIZE / 2
 
-		-- Hold-and-drag, mirroring chicken.lua's/coop.lua's long-press shape: a
+		-- Hold-and-drag, mirroring chicken.lua's/bed.lua's long-press shape: a
 		-- ghost only appears (and starts wiggling) once the hold clears
 		-- LONG_PRESS_TIME, then follows the touch - at that same moment the
 		-- slot's resting icon hides, leaving the slot visibly empty until the
-		-- touch ends. A release where item.isValidPosition passes places the
+		-- touch ends. A release where Garden.tryPlace succeeds places the
 		-- item - anywhere else (a position that wouldn't fit fully in the
 		-- play area, another band, a safe-area margin, or a release before
 		-- the long-press even fires) cancels with nothing placed, but the
@@ -137,8 +132,8 @@ function Toolbar.create()
 					if ghost then
 						Wiggle.stop(wiggleHandle)
 						wiggleHandle = nil
-						if event.phase == "ended" and item.isValidPosition(event.x, event.y) then
-							item.place(event.x, event.y)
+						if event.phase == "ended" then
+							Garden.tryPlace(item.type, event.x, event.y)
 						end
 						ghost:removeSelf()
 						ghost = nil

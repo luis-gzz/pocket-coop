@@ -1,14 +1,11 @@
-local StateMachine = require("src.state_machine")
-local Constants = require("src.constants")
-local Island = require("src.island")
-local YSort = require("src.y_sort")
-local Gauges = require("src.gauges")
-local Dropping = require("src.dropping")
-local Coop = require("src.coop")
-local Feed = require("src.feed")
-local TimeScale = require("src.time_scale")
-local Tooltip = require("src.tooltip")
-local Wiggle = require("src.wiggle")
+local StateMachine = require("src.util.state_machine")
+local Constants = require("src.util.constants")
+local Island = require("src.systems.island")
+local YSort = require("src.systems.y_sort")
+local Gauges = require("src.objects.chicken.gauges")
+local Feed = require("src.systems.feed")
+local Tooltip = require("src.ui.tooltip")
+local Wiggle = require("src.util.wiggle")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -101,7 +98,7 @@ local function pickEatingSpot(target)
 	return x, y
 end
 
--- Whether to eat at all is a chance roll (src/gauges.lua's rollWantsToEat)
+-- Whether to eat at all is a chance roll (gauges.lua's rollWantsToEat)
 -- against the food ceiling if a source exists, the forage ceiling otherwise.
 local function decideNextState(chicken)
 	local hasSource = Feed.hasFoodSource()
@@ -146,13 +143,12 @@ local function buildSprite(path, numFrames, frameTime)
 	return sprite
 end
 
--- saved: an optional table from src/save.lua (position + Gauges fields) to
--- resume from.
+-- saved: an optional table from src/systems/save.lua (position + Gauges
+-- fields) to resume from.
 function Chicken.new(saved)
 	local self = setmetatable({}, Chicken)
 
 	self.gauges = Gauges.new(saved)
-	self.droppingViews = {}
 	self.selected = false
 
 	local spawnBounds = getBounds()
@@ -200,13 +196,8 @@ function Chicken.new(saved)
 		self.body:insert(sprite)
 	end
 
-	for _, record in ipairs(self.gauges.droppings) do
-		self:addDroppingView(record)
-	end
-
 	self:setupTouch()
 	self.machine = StateMachine.new(self, STATES, "idle")
-	self:setupUpdateLoop()
 
 	return self
 end
@@ -257,66 +248,44 @@ function Chicken:retargetApproach()
 	end
 end
 
-function Chicken:addDroppingView(record)
-	local dropping = Dropping.new(record, function(view)
-		self.gauges:removeDropping(view.record)
-		view:destroy()
-		for index, existing in ipairs(self.droppingViews) do
-			if existing == view then
-				table.remove(self.droppingViews, index)
-				break
-			end
-		end
-	end)
-	table.insert(self.droppingViews, dropping)
+function Chicken:getPosition()
+	return self.view.x, self.view.y
 end
 
--- Drives the gauges every frame, debits any food source being eaten from,
--- and checks for a nearby treat alert.
-function Chicken:setupUpdateLoop()
-	local lastFrameTime = nil
+-- Driven every frame by garden.lua's own frame loop (not a private listener
+-- here - see garden.lua for why): drives the gauges, debits any food source
+-- being eaten from, and checks for a nearby treat alert. dt is already
+-- time-scaled (from Clock); dirtyItemCount is the garden-wide dropping +
+-- floor egg count. Returns any newly spawned dropping records and whether a
+-- lay happened this call, so Garden can create their views / hatch the egg -
+-- both are Garden-owned concerns now, not this chicken's.
+function Chicken:update(dt, dirtyItemCount)
+	-- Keeps the hit target glued to the chicken and always frontmost.
+	self.hitArea.x = self.view.x
+	self.hitArea.y = self.view.y
+	self.hitArea:toFront()
 
-	local function onFrame(event)
-		-- Keeps the hit target glued to the chicken and always frontmost.
-		self.hitArea.x = self.view.x
-		self.hitArea.y = self.view.y
-		self.hitArea:toFront()
+	local spawned, laid, delivered = self.gauges:update(dt, dirtyItemCount, self.view.x, self.view.y)
 
-		if not lastFrameTime then
-			lastFrameTime = event.time
-			return
-		end
-		local dt = (event.time - lastFrameTime) / 1000
-		lastFrameTime = event.time
-
-		local spawned, laid, delivered = self.gauges:update(dt, TimeScale.get(), self.view.x, self.view.y)
-		for _, record in ipairs(spawned) do
-			self:addDroppingView(record)
-		end
-		if laid then
-			Coop.hatchEgg(self.view.x, self.view.y)
-		end
-
-		-- Debits the food source by the satiety actually delivered this frame.
-		if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
-			if not Feed.deplete(self.foodTarget, delivered) then
-				self:setFoodTarget(nil)
-				self.machine:changeState(decideNextState(self))
-			end
-		end
-
-		-- A treat alert is checked every frame and preempts whatever the
-		-- chicken is doing, except while held.
-		if self.machine.name ~= "held" then
-			local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
-			if claimed then
-				self:setFoodTarget(claimed)
-				self.machine:changeState("approach")
-			end
+	-- Debits the food source by the satiety actually delivered this frame.
+	if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
+		if not Feed.deplete(self.foodTarget, delivered) then
+			self:setFoodTarget(nil)
+			self.machine:changeState(decideNextState(self))
 		end
 	end
 
-	Runtime:addEventListener("enterFrame", onFrame)
+	-- A treat alert is checked every frame and preempts whatever the
+	-- chicken is doing, except while held.
+	if self.machine.name ~= "held" then
+		local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
+		if claimed then
+			self:setFoodTarget(claimed)
+			self.machine:changeState("approach")
+		end
+	end
+
+	return spawned, laid
 end
 
 function Chicken:getSaveData()

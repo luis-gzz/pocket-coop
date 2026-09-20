@@ -1,8 +1,11 @@
-local Coop = require("src.coop")
-
 -- Per-chicken satiety/cleanliness/happiness model. Pure data + rates, no
--- display objects here (see src/dropping.lua for the visual side) - keeps
--- this module the single place gauge math happens (ADR-0003).
+-- display objects here (see src/objects/items/dropping.lua for the visual
+-- side) - keeps this module the single place gauge math happens (ADR-0003).
+--
+-- Never requires Garden or Clock directly: dt is passed in already
+-- time-scaled (from Clock, via Chicken), and dirtyItemCount (droppings +
+-- floor eggs, now a garden-wide count) is passed in by Garden's own
+-- per-frame loop. See garden.lua and chicken.lua.
 local Gauges = {}
 Gauges.__index = Gauges
 
@@ -13,7 +16,7 @@ local SATIETY_EAT_RATE = 100 / 30 -- full over 30 seconds of active eating
 local SATIETY_FORAGE_CEILING = 50 -- forage's satiety cap
 local SATIETY_FOOD_CEILING = 100
 
--- Exposed so src/chicken.lua can pick which ceiling to roll against.
+-- Exposed so src/objects/chicken/chicken.lua can pick which ceiling to roll against.
 Gauges.FORAGE_CEILING = SATIETY_FORAGE_CEILING
 Gauges.FOOD_CEILING = SATIETY_FOOD_CEILING
 
@@ -30,8 +33,8 @@ local STOP_CHANCE_EXPONENT_FORAGE = 3
 local START_CHANCE_EXPONENT_FOOD = 1
 local START_CHANCE_EXPONENT_FORAGE = 1.6
 
--- Cleanliness: eases toward a target set by how many droppings exist
--- (ADR-0004), rather than draining directly.
+-- Cleanliness: eases toward a target set by how many dirty items exist
+-- garden-wide (ADR-0004), rather than draining directly.
 local CLEAN_PENALTY_PER_DROPPING = 10
 local CLEAN_EASE_RATE = 0.05 -- fraction of the remaining gap closed per second
 
@@ -43,16 +46,6 @@ local POOP_ATE_RECENTLY_WINDOW = 30 -- seconds; "recently" for the bonus above
 local POOP_STALE_BONUS_PER_CYCLE = 0.1 -- ramps the longer it's been since the last spawn
 local DROPPING_JITTER_RADIUS = 10 -- world points; scatters spawns near the chicken so stacked droppings stay visually distinct
 
--- Caps how much simulated time a single update() call can cover, regardless
--- of the debug time-scale multiplier. Without this, a frame hitch (or the
--- app losing/regaining focus) can produce one huge raw dt, which at a high
--- time-scale would blow through many poop-clock intervals in a single call -
--- several of which can succeed, all spawned at the same spot since the
--- chicken hasn't moved. Clamping the raw dt keeps the time-scale dial's
--- intended fast-forwarding (raw dt x up to 300) working at normal frame
--- rates while bounding worst-case bursts.
-local MAX_RAW_DT = 0.25 -- seconds
-
 -- Happiness buff: a flat, temporary bonus with an expiry, not stacked by a
 -- repeat grant. Currently only a mealworm grants one.
 local HAPPINESS_BUFF_AMOUNT = 25
@@ -61,8 +54,8 @@ local TREAT_SATIETY_BONUS = 25
 
 -- Lay clock: a recurring, FSM-independent chance to lay an egg (CONTEXT.md),
 -- shaped just like the poop clock above - an accumulator rolling a check
--- every LAY_CLOCK_INTERVAL. Gauges only gates WHEN a hen lays; src/coop.lua
--- decides WHERE the egg goes (ADR-0007).
+-- every LAY_CLOCK_INTERVAL. Gauges only gates WHEN a hen lays; src/systems/
+-- garden.lua decides WHERE the egg goes (ADR-0007).
 local LAY_CLOCK_INTERVAL = 60 -- seconds between rolls
 local LAY_HAPPINESS_GATE = 33 -- below this happiness, no laying at all
 local LAY_REFRACTORY = 3 * 60 -- seconds since the last lay before laying is possible again
@@ -86,10 +79,11 @@ local function clamp01(value)
 	return math.max(0, math.min(1, value))
 end
 
--- saved: an optional table (from src/save.lua) to resume from. All fields
--- live on the same internal `now` clock, which only advances while the app
--- is open - so resuming from a save is just picking that clock back up,
--- with no elapsed-time decay to compute (there deliberately isn't any yet).
+-- saved: an optional table (from src/systems/save.lua) to resume from. All
+-- fields live on the same internal `now` clock, which only advances while
+-- the app is open - so resuming from a save is just picking that clock back
+-- up, with no elapsed-time decay to compute (there deliberately isn't any
+-- yet).
 function Gauges.new(saved)
 	saved = saved or {}
 	local self = setmetatable({}, Gauges)
@@ -97,7 +91,6 @@ function Gauges.new(saved)
 	self.satiety = saved.satiety or 100
 	self.cleanliness = saved.cleanliness or 100
 	self.happinessBuffExpiresAt = saved.happinessBuffExpiresAt or 0
-	self.droppings = saved.droppings or {}
 	self.cyclesSincePoop = saved.cyclesSincePoop or 0
 	self.poopClockAccumulator = saved.poopClockAccumulator or 0
 	self.lastAteAt = saved.lastAteAt or -math.huge
@@ -193,39 +186,37 @@ local function jitteredPosition(x, y)
 	return x + math.cos(angle) * radius, y + math.sin(angle) * radius
 end
 
--- Advances the simulation by dt seconds. Returns spawned droppings, whether
--- a lay happened, and satiety delivered this call.
-function Gauges:update(dt, timeScale, chickenX, chickenY)
-	local scaledDt = math.min(dt, MAX_RAW_DT) * (timeScale or 1)
-	self.now = self.now + scaledDt
+-- Advances the simulation by dt seconds (already clamped and time-scaled by
+-- Clock). dirtyItemCount is the garden-wide dropping + floor egg count,
+-- supplied by Garden's own frame loop. Returns spawned droppings, whether a
+-- lay happened, and satiety delivered this call.
+function Gauges:update(dt, dirtyItemCount, chickenX, chickenY)
+	self.now = self.now + dt
 
 	local satietyBefore = self.satiety
 	if self.isEating then
-		self.satiety = clamp(self.satiety + SATIETY_EAT_RATE * scaledDt, 0, self.eatCeiling)
+		self.satiety = clamp(self.satiety + SATIETY_EAT_RATE * dt, 0, self.eatCeiling)
 		self.lastAteAt = self.now
 	else
-		self.satiety = clamp100(self.satiety - SATIETY_DECAY_RATE * scaledDt)
+		self.satiety = clamp100(self.satiety - SATIETY_DECAY_RATE * dt)
 	end
 	local delivered = math.max(0, self.satiety - satietyBefore)
 
-	local dirtyItemCount = #self.droppings + Coop.getFloorEggCount()
 	local target = clamp100(100 - dirtyItemCount * CLEAN_PENALTY_PER_DROPPING)
-	self.cleanliness = self.cleanliness + (target - self.cleanliness) * CLEAN_EASE_RATE * scaledDt
+	self.cleanliness = self.cleanliness + (target - self.cleanliness) * CLEAN_EASE_RATE * dt
 
 	local spawned = {}
-	self.poopClockAccumulator = self.poopClockAccumulator + scaledDt
+	self.poopClockAccumulator = self.poopClockAccumulator + dt
 	while self.poopClockAccumulator >= POOP_CLOCK_INTERVAL do
 		self.poopClockAccumulator = self.poopClockAccumulator - POOP_CLOCK_INTERVAL
 		if rollPoopClock(self) then
 			local x, y = jitteredPosition(chickenX, chickenY)
-			local record = { x = x, y = y, createdAt = self.now }
-			table.insert(self.droppings, record)
-			table.insert(spawned, record)
+			table.insert(spawned, { x = x, y = y, createdAt = self.now })
 		end
 	end
 
 	local laid = false
-	self.layClockAccumulator = self.layClockAccumulator + scaledDt
+	self.layClockAccumulator = self.layClockAccumulator + dt
 	while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
 		self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
 		if rollLayClock(self) then
@@ -251,15 +242,6 @@ function Gauges:isHappinessBuffActive()
 	return self.now < self.happinessBuffExpiresAt
 end
 
-function Gauges:removeDropping(record)
-	for index, dropping in ipairs(self.droppings) do
-		if dropping == record then
-			table.remove(self.droppings, index)
-			return
-		end
-	end
-end
-
 function Gauges:getHappiness()
 	local satiety, cleanliness = self.satiety, self.cleanliness
 	local weightSatiety = (100 - satiety) + HAPPINESS_K
@@ -275,7 +257,6 @@ function Gauges:getSaveData()
 		satiety = self.satiety,
 		cleanliness = self.cleanliness,
 		happinessBuffExpiresAt = self.happinessBuffExpiresAt,
-		droppings = self.droppings,
 		cyclesSincePoop = self.cyclesSincePoop,
 		poopClockAccumulator = self.poopClockAccumulator,
 		lastAteAt = self.lastAteAt,

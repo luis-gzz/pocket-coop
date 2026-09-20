@@ -1,4 +1,4 @@
-local Constants = require("src.constants")
+local Constants = require("src.util.constants")
 
 -- The island and the two UI bands above/below it (CONTEXT.md, ADR-0009).
 -- The island is generated first, sized to fill WIDTH_FRACTION/HEIGHT_FRACTION
@@ -54,8 +54,8 @@ local function computeBands()
 	}
 end
 
--- The island's rect plus its tile grid dimensions - src/island.lua renders
--- into this instead of computing its own size (ADR-0009).
+-- The island's rect plus its tile grid dimensions - src/systems/island.lua
+-- renders into this instead of computing its own size (ADR-0009).
 function Layout.getIslandRect()
 	local bands = computeBands()
 	return { rect = bands.islandRect, columns = bands.columns, rows = bands.rows }

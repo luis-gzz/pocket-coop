@@ -1,8 +1,9 @@
-local Constants = require("src.constants")
-local YSort = require("src.y_sort")
+local Constants = require("src.util.constants")
+local YSort = require("src.systems.y_sort")
 
--- The visual, tappable side of a Gauges dropping record - Gauges owns the
--- data, this owns the display object and turns a tap into a cleanup.
+-- The visual, tappable side of a dropping record - Garden owns the data
+-- (garden-wide, not any one chicken's - see ADR-0012), this owns the
+-- display object and turns a tap into a cleanup.
 local Dropping = {}
 Dropping.__index = Dropping
 
@@ -11,9 +12,9 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 8, 6
 local WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 local HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 
--- record: the {x, y, createdAt} table from Gauges. onClean(dropping) is
--- called when tapped, so the caller can remove it from Gauges and from
--- whatever list is tracking active droppings.
+-- record: the {x, y, createdAt} table Garden owns. onClean(dropping) is
+-- called when tapped, so the caller (Garden) can remove it from its own
+-- droppings list.
 function Dropping.new(record, onClean)
 	local self = setmetatable({}, Dropping)
 	self.record = record

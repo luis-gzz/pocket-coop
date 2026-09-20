@@ -1,6 +1,6 @@
-local Constants = require("src.constants")
-local Layout = require("src.layout")
-local Coop = require("src.coop")
+local Constants = require("src.util.constants")
+local Layout = require("src.ui.layout")
+local Garden = require("src.systems.garden")
 
 -- The top UI band's at-a-glance stat displays - today just the egg counter
 -- (the player's total collected eggs, their stash, not the number of eggs
@@ -51,7 +51,7 @@ function Hud.create()
 	text:setFillColor(0.2, 0.2, 0.2)
 
 	local function refresh()
-		text.text = tostring(Coop.getCollectedCount())
+		text.text = tostring(Garden.getCollectedCount())
 		icon.x = text.x - text.width - ICON_TEXT_GAP
 	end
 	refresh()

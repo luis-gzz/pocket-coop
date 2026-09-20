@@ -8,15 +8,13 @@ display.setDefault("magTextureFilter", "nearest")
 -- Backdrop behind the island, filling the whole camera.
 display.setDefault("background", 0xA2 / 0xFF, 0xDC / 0xFF, 0xC7 / 0xFF)
 
-local Island = require("src.island")
-local YSort = require("src.y_sort")
-local Chicken = require("src.chicken")
-local Coop = require("src.coop")
-local Feed = require("src.feed")
-local Hud = require("src.hud")
-local Toolbar = require("src.toolbar")
-local Save = require("src.save")
-local DebugOverlay = require("src.debug_overlay")
+local Island = require("src.systems.island")
+local YSort = require("src.systems.y_sort")
+local Garden = require("src.systems.garden")
+local Hud = require("src.ui.hud")
+local Toolbar = require("src.ui.toolbar")
+local Save = require("src.systems.save")
+local DebugOverlay = require("src.ui.debug_overlay")
 
 local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
@@ -26,12 +24,12 @@ Island.create()
 -- against each other in this group (ADR-0005).
 YSort.createGroup()
 
--- The save file is {chicken = ..., world = ..., feed = ...} (ADR-0007,
--- ADR-0011). Feed loads before Chicken so it's visible on the first decide.
+-- The save file is { garden = ..., feed = ... } (ADR-0007, ADR-0011).
+-- Garden owns loading itself, its chickens, and Feed together, and wires
+-- its own save callbacks - main.lua only needs to trigger a save on a timer
+-- and on suspend/exit.
 local saved = Save.load()
-Coop.load(saved and saved.world)
-Feed.load(saved and saved.feed)
-local chicken = Chicken.new(saved and saved.chicken)
+Garden.load(saved)
 
 Hud.create()
 Toolbar.create()
@@ -40,19 +38,10 @@ if DEBUG_MODE then
 	DebugOverlay.create()
 end
 
-local function saveNow()
-	Save.write({ chicken = chicken:getSaveData(), world = Coop.getSaveData(), feed = Feed.getSaveData() })
-end
-
--- Coop and Feed each save immediately on their own discrete events, not
--- just the periodic/suspend saves below.
-Coop.setSaveCallback(saveNow)
-Feed.setSaveCallback(saveNow)
-
-timer.performWithDelay(AUTOSAVE_INTERVAL, saveNow, 0)
+timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
-		saveNow()
+		Garden.save()
 	end
 end)

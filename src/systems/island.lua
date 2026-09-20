@@ -1,6 +1,6 @@
-local Constants = require("src.constants")
-local Layout = require("src.layout")
-local CORNER_FRAMES = require("src.grass_autotile_frames")
+local Constants = require("src.util.constants")
+local Layout = require("src.ui.layout")
+local CORNER_FRAMES = require("src.systems.grass_autotile_frames")
 
 local Island = {}
 
