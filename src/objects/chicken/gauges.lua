@@ -55,7 +55,8 @@ local TREAT_SATIETY_BONUS = 25
 -- Lay clock: a recurring, FSM-independent chance to lay an egg (CONTEXT.md),
 -- shaped just like the poop clock above - an accumulator rolling a check
 -- every LAY_CLOCK_INTERVAL. Gauges only gates WHEN a hen lays; src/systems/
--- garden.lua decides WHERE the egg goes (ADR-0007).
+-- garden.lua decides WHERE the egg goes, and the hen's own nest state
+-- carries out the walk there (ADR-0007, ADR-0013).
 local LAY_CLOCK_INTERVAL = 60 -- seconds between rolls
 local LAY_HAPPINESS_GATE = 33 -- below this happiness, no laying at all
 local LAY_REFRACTORY = 3 * 60 -- seconds since the last lay before laying is possible again
@@ -97,6 +98,11 @@ function Gauges.new(saved)
 	self.lastLayAt = saved.lastLayAt or -math.huge
 	self.layClockAccumulator = saved.layClockAccumulator or 0
 	self.now = saved.now or 0
+
+	-- Set the moment a lay roll succeeds, cleared by markLaid() once the egg
+	-- actually lands (ADR-0013) - not persisted, so an app quit mid-walk just
+	-- loses that one lay attempt rather than needing its own save slot.
+	self.pendingLay = false
 
 	self.isEating = false
 	self.eatCeiling = SATIETY_FOOD_CEILING
@@ -148,12 +154,16 @@ local function rollPoopClock(self)
 	return false
 end
 
--- Gates on happiness and refractory period, then rolls a chance that rises
--- with both happiness and time since the last lay. On success, records the
--- new lastLayAt (also closing the refractory gate for any other roll later
--- in the same update() call, so a burst of intervals can produce at most
--- one lay).
+-- Gates on a lay already pending (a hen mid-walk-to-lay can't roll a second
+-- one), happiness, and the refractory period, then rolls a chance that rises
+-- with both happiness and time since the last lay. On success, sets
+-- pendingLay (closing the gate above for any later roll until markLaid()
+-- clears it) - lastLayAt itself only advances once the egg actually lands.
 local function rollLayClock(self)
+	if self.pendingLay then
+		return false
+	end
+
 	local happiness = self:getHappiness()
 	if happiness < LAY_HAPPINESS_GATE then
 		return false
@@ -171,7 +181,7 @@ local function rollLayClock(self)
 	local layChance = clamp01(happinessFactor * timeFactor)
 
 	if math.random() < layChance then
-		self.lastLayAt = self.now
+		self.pendingLay = true
 		return true
 	end
 	return false
@@ -188,9 +198,12 @@ end
 
 -- Advances the simulation by dt seconds (already clamped and time-scaled by
 -- Clock). dirtyItemCount is the garden-wide dropping + floor egg count,
--- supplied by Garden's own frame loop. Returns spawned droppings, whether a
--- lay happened, and satiety delivered this call.
-function Gauges:update(dt, dirtyItemCount, chickenX, chickenY)
+-- supplied by Garden's own frame loop. isHeld suppresses the lay clock
+-- entirely (mirroring how a held hen also can't be claimed by a treat, see
+-- chicken.lua), so a drag can never yank a hen out of a walk it hasn't even
+-- started yet. Returns spawned droppings, whether a lay happened, and
+-- satiety delivered this call.
+function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld)
 	self.now = self.now + dt
 
 	local satietyBefore = self.satiety
@@ -216,15 +229,25 @@ function Gauges:update(dt, dirtyItemCount, chickenX, chickenY)
 	end
 
 	local laid = false
-	self.layClockAccumulator = self.layClockAccumulator + dt
-	while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
-		self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
-		if rollLayClock(self) then
-			laid = true
+	if not isHeld then
+		self.layClockAccumulator = self.layClockAccumulator + dt
+		while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
+			self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
+			if rollLayClock(self) then
+				laid = true
+			end
 		end
 	end
 
 	return spawned, laid, delivered
+end
+
+-- Called once a pending lay actually lands (egg created), whether in a bed
+-- or on the floor - advances the refractory window from here, not from when
+-- the lay was decided, and reopens the gate for another roll (ADR-0013).
+function Gauges:markLaid()
+	self.lastLayAt = self.now
+	self.pendingLay = false
 end
 
 -- Permanent satiety bump from a mealworm, uncapped by the forage ceiling.

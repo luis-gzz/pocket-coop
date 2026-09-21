@@ -4,7 +4,7 @@ local Wiggle = require("src.util.wiggle")
 local Island = require("src.systems.island")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
--- beds themselves (the { x, y, egg } records) and their placement rules;
+-- beds themselves (the { x, y, eggs } records) and their placement rules;
 -- this owns the display object and repositioning.
 local Bed = {}
 
@@ -15,6 +15,22 @@ Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed" }
 
+-- A bed holds up to this many eggs at once (CONTEXT.md's Egg slot).
+Bed.SLOT_COUNT = 3
+
+-- x offsets (native px) for each egg slot, in fill order: Garden.findOpenSlot
+-- walks slots 1..SLOT_COUNT in this order, so the middle egg lands first,
+-- then left, then right. Clustered closer than the bed's full width so the
+-- three read as a little pile rather than spread edge to edge. y is left to
+-- Egg.newInBed's own anchor.
+local SLOT_OFFSETS_NATIVE = { 0, -5, 5 }
+
+-- The local x offset (already scaled) for one of a bed's fixed egg slots -
+-- Garden positions each egg it attaches to a bed using this.
+function Bed.getSlotOffsetX(index)
+	return SLOT_OFFSETS_NATIVE[index] * Constants.PIXEL_SCALE
+end
+
 -- ms; matches chicken.lua's own long-press threshold. Duplicated rather than
 -- shared - bed dragging (free movement, validate-only-on-drop, snap back)
 -- differs enough from the chicken's (continuously clamped, FSM-integrated)
@@ -24,10 +40,10 @@ local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
 -- Whether a bed centered at (x, y) would sit fully inside the play area -
--- every edge, not just its center point. Only needs Island's static bounds,
--- not any other bed's position, so this stays self-contained rather than
--- reaching into Garden - unlike food items, which do need to check overlap
--- against other placed items (see mealworm.lua's resolveDrop).
+-- every edge, not just its center point. Only checks Island's static
+-- bounds; overlap against other beds is Garden's own resolveBedPlacement
+-- (ADR-0014), the same split Feed's computePlacement already uses for food
+-- items (see mealworm.lua's resolveDrop).
 function Bed.isValidPosition(x, y)
 	local bounds = Island.getInnerBounds()
 	return x - Bed.WIDTH / 2 >= bounds.minX
@@ -36,22 +52,28 @@ function Bed.isValidPosition(x, y)
 		and y + Bed.HEIGHT / 2 <= bounds.maxY
 end
 
--- record: the { x, y, egg } table Garden owns, so this can mutate record.x/y
+-- record: the { x, y, eggs } table Garden owns, so this can mutate record.x/y
 -- directly on a successful drag and Garden's own bed list stays in sync.
 -- onMoved() is called right after that mutation, so Garden can save.
+-- resolvePlacement(x, y) is Garden's own bed-vs-bed overlap check
+-- (Garden.resolveBedPlacement, ADR-0014) - it returns the final (possibly
+-- nudged) x, y on a valid drop, or nil to snap back.
 --
 -- A bed is a group so an occupying egg can be inserted on top of the nest
 -- art and stay visually "inside" it (see egg.lua), instead of competing with
--- the nest for Y-sort depth. The group itself is deliberately NOT registered
--- with YSort: a bed is a flat, wide floor object, and a chicken or egg
--- standing anywhere on it should always read as in front of it - leaving it
--- out of the depth-sort registry means every registered world object gets
--- toFront()'d above it every frame, so it always renders furthest back.
-function Bed.new(record, onMoved)
+-- the nest for Y-sort depth. The group is registered with the floor layer
+-- (ADR-0014), not the main YSort group: it sorts against other beds by the
+-- same bottom-edge rule (ADR-0006), but the floor layer as a whole always
+-- renders behind every object in the main sort, so a chicken or egg standing
+-- anywhere on a bed still reads as in front of it.
+function Bed.new(record, onMoved, resolvePlacement)
 	local group = display.newGroup()
-	YSort.getGroup():insert(group)
+	YSort.getFloorGroup():insert(group)
 	group.x = record.x
 	group.y = record.y
+	YSort.addToFloor(group, function(view)
+		return view.y + Bed.HEIGHT / 2
+	end)
 
 	local nest = display.newImageRect(group, IMAGE_PATH, Bed.WIDTH, Bed.HEIGHT)
 	nest.x = 0
@@ -107,8 +129,13 @@ function Bed.new(record, onMoved)
 					isDragging = false
 					Wiggle.stop(wiggleHandle)
 					wiggleHandle = nil
-					if event.phase == "ended" and Bed.isValidPosition(group.x, group.y) then
-						record.x, record.y = group.x, group.y
+					local finalX, finalY
+					if event.phase == "ended" then
+						finalX, finalY = resolvePlacement(group.x, group.y)
+					end
+					if finalX then
+						group.x, group.y = finalX, finalY
+						record.x, record.y = finalX, finalY
 						onMoved()
 					else
 						transition.to(group, { x = originalX, y = originalY, time = 150 })

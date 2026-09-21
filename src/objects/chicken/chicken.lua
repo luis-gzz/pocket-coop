@@ -144,12 +144,16 @@ local function buildSprite(path, numFrames, frameTime)
 end
 
 -- saved: an optional table from src/systems/save.lua (position + Gauges
--- fields) to resume from.
-function Chicken.new(saved)
+-- fields) to resume from. layCallbacks = { pickLayTarget, commitLay }, both
+-- owned by Garden (ADR-0013) - injected rather than required directly, the
+-- same way Bed/Mealworm receive their own placement callbacks from Garden,
+-- so this module never needs to require Garden itself.
+function Chicken.new(saved, layCallbacks)
 	local self = setmetatable({}, Chicken)
 
 	self.gauges = Gauges.new(saved)
 	self.selected = false
+	self.layCallbacks = layCallbacks
 
 	local spawnBounds = getBounds()
 
@@ -227,8 +231,34 @@ function Chicken:setSelected(value)
 	self.selectedIndicator.isVisible = value
 	if value and self.machine.name ~= "idle" and self.machine.name ~= "held" then
 		self:setFoodTarget(nil)
+		self:cancelNesting()
 		self.machine:changeState("idle")
 	end
+end
+
+-- Abandons an in-progress walk to lay, freeing the lay clock to roll again
+-- (ADR-0013) - called wherever a food target is also abandoned, since an
+-- interrupted walk means the hen never actually reached its target. Without
+-- this, gauges.pendingLay would stay set forever and the hen could never lay
+-- again.
+function Chicken:cancelNesting()
+	self.layTarget = nil
+	self.gauges.pendingLay = false
+end
+
+-- target: one of Garden.pickLayTarget's results. "immediate" lays right
+-- where the hen stands (no beds exist anywhere); anything else walks there
+-- first via the "nest" state. Preempts whatever the hen was doing, the same
+-- way a treat's claim does, and releases any food target/claim first.
+function Chicken:beginNesting(target)
+	self:setFoodTarget(nil)
+	if target.kind == "immediate" then
+		self.layCallbacks.commitLay(target, self.view.x, self.view.y)
+		self.gauges:markLaid()
+		return
+	end
+	self.layTarget = target
+	self.machine:changeState("nest")
 end
 
 -- Releases a superseded treat's claim before adopting a new target.
@@ -265,7 +295,8 @@ function Chicken:update(dt, dirtyItemCount)
 	self.hitArea.y = self.view.y
 	self.hitArea:toFront()
 
-	local spawned, laid, delivered = self.gauges:update(dt, dirtyItemCount, self.view.x, self.view.y)
+	local isHeld = self.machine.name == "held"
+	local spawned, laid, delivered = self.gauges:update(dt, dirtyItemCount, self.view.x, self.view.y, isHeld)
 
 	-- Debits the food source by the satiety actually delivered this frame.
 	if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
@@ -276,10 +307,13 @@ function Chicken:update(dt, dirtyItemCount)
 	end
 
 	-- A treat alert is checked every frame and preempts whatever the
-	-- chicken is doing, except while held.
+	-- chicken is doing, except while held - including an in-progress nest
+	-- walk, so cancelNesting() releases that lay attempt the same way it
+	-- does for any other interruption.
 	if self.machine.name ~= "held" then
 		local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
 		if claimed then
+			self:cancelNesting()
 			self:setFoodTarget(claimed)
 			self.machine:changeState("approach")
 		end
@@ -458,6 +492,76 @@ STATES = {
 		end,
 	},
 
+	-- Walks to wherever the hen will lay - a bed with an open slot, or a
+	-- floor spot near the nearest bed if every bed is full (chicken.layTarget,
+	-- set by Chicken:beginNesting). Re-validates on arrival via commitLay,
+	-- since the target can go stale (another hen fills the last slot while
+	-- this one is still walking) - a stale bed re-decides and re-enters nest
+	-- rather than laying somewhere no longer valid (ADR-0013).
+	nest = {
+		enter = function(chicken)
+			local target = chicken.layTarget
+			if not target then
+				chicken.machine:changeState(decideNextState(chicken))
+				return
+			end
+
+			chicken:setAnimation("walk")
+
+			local destX, destY
+			if target.kind == "bed" then
+				destX, destY = target.bed.x, target.bed.y
+			else
+				destX, destY = target.x, target.y
+			end
+			-- A bed can sit right at the island's edge, just outside the
+			-- chicken's own (slightly more inset) movement bounds - clamped
+			-- the same way pickEatingSpot/pickWanderDestination already are.
+			local bounds = getBounds()
+			destX = clamp(destX, bounds.minX, bounds.maxX)
+			destY = clamp(destY, bounds.minY, bounds.maxY)
+			chicken:setFacing(destX < chicken.view.x and -1 or 1)
+
+			local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
+			local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
+
+			chicken.transitionHandle = transition.to(chicken.view, {
+				x = destX,
+				y = destY,
+				time = duration,
+				onComplete = function()
+					chicken.transitionHandle = nil
+					local reachedTarget = chicken.layTarget
+					chicken.layTarget = nil
+
+					if chicken.layCallbacks.commitLay(reachedTarget, chicken.view.x, chicken.view.y) then
+						chicken.gauges:markLaid()
+						chicken.machine:changeState(decideNextState(chicken))
+						return
+					end
+
+					-- The targeted bed filled up while walking - re-decide
+					-- from here rather than falling back to the floor outright.
+					local freshTarget = chicken.layCallbacks.pickLayTarget(chicken.view.x, chicken.view.y)
+					if freshTarget.kind == "immediate" then
+						chicken.layCallbacks.commitLay(freshTarget, chicken.view.x, chicken.view.y)
+						chicken.gauges:markLaid()
+						chicken.machine:changeState(decideNextState(chicken))
+					else
+						chicken.layTarget = freshTarget
+						chicken.machine:changeState("nest")
+					end
+				end,
+			})
+		end,
+		exit = function(chicken)
+			if chicken.transitionHandle then
+				transition.cancel(chicken.transitionHandle)
+				chicken.transitionHandle = nil
+			end
+		end,
+	},
+
 	-- Eating in place, from a claimed source or foraging with no target.
 	-- Rolls about once a second for whether to stop.
 	eat = {
@@ -528,8 +632,10 @@ STATES = {
 	held = {
 		enter = function(chicken)
 			chicken:setAnimation("idle")
-			-- Being picked up releases any food target/claim.
+			-- Being picked up releases any food target/claim and abandons an
+			-- in-progress nest walk.
 			chicken:setFoodTarget(nil)
+			chicken:cancelNesting()
 			chicken:startWiggle()
 		end,
 		exit = function(chicken)

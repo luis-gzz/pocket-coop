@@ -20,8 +20,13 @@ local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
 Island.create()
 
--- World objects (chicken, droppings, hen beds, eggs, food) depth-sort
--- against each other in this group (ADR-0005).
+-- The floor layer (hen beds) - created first so it's inserted, and therefore
+-- always renders, behind the main world group below (ADR-0014).
+YSort.createFloorLayer()
+
+-- World objects (chicken, droppings, eggs, food) depth-sort against each
+-- other in this group (ADR-0005). Hen beds don't join it - see the floor
+-- layer above.
 YSort.createGroup()
 
 -- The save file is { garden = ..., feed = ... } (ADR-0007, ADR-0011).
