@@ -145,12 +145,16 @@ How much fullness a food source can deliver in total before it's used up, measur
 _Avoid_: TTL, lifetime, spoilage, durability, charges
 
 **Forage**:
-Eating from the bare ground, which a chicken falls back to only when no food source exists anywhere on the island — a treat waiting to be noticed doesn't count. Fills satiety no further than halfway, so placed food is the only route to a fully fed chicken.
+Eating from the bare ground, which a chicken falls back to only when no food source exists anywhere on the island — a treat waiting to be noticed doesn't count. Fills satiety no further than halfway, so placed food is the only route to a fully fed chicken. Never gets Eat's minimum-eating floor, so a forage bout can still end within its first second, same as always.
 _Avoid_: Graze, peck, scratching
 
 **Approach**:
 The state a chicken is in while walking to a food item it has picked. Unlike a wander destination, the target is a specific food item, and arrival either enters eat (a food source) or consumes the treat at once and lingers briefly playing the eat animation (a mealworm has nothing to eat over time, but still gets a couple of seconds of the animation as a flourish) — or re-decides, if the target is gone before it gets there.
 _Avoid_: Seek, travel, pathing
+
+**Eat**:
+The state a chicken is in while actively eating — from a claimed food source, or foraging in place with no target. From a food source, it's guaranteed to close at least half the gap between its satiety and full before it can quit early, so a hen that was already mostly fed still eats for a little while rather than stopping the instant it started; forage has no such floor (see Forage). Past that floor — or from the first moment, when foraging — it rolls roughly once a second for whether to stop, the chance rising the closer satiety already is to whichever ceiling is in force. Always ends the moment satiety reaches that ceiling regardless of the floor, and can also be cut short at any time by a treat, being picked up, or the food source running out.
+_Avoid_: Eating (eat is the state's own name already)
 
 **Feed**:
 The single shared owner of every placed food item, and the one place a hungry chicken asks what there is to eat. Answers with a food item or with nothing — and nothing is what sends the chicken to forage. Owned by Garden alongside its chicken/bed/egg/dropping state — Garden owns everything else in the world, Feed owns the food side (see ADR-0011).

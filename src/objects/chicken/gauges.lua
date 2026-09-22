@@ -23,8 +23,15 @@ Gauges.FOOD_CEILING = SATIETY_FOOD_CEILING
 -- Stop-eating chance is (satiety/ceiling)^exponent (see rollShouldStopEating).
 -- Forage's exponent is higher than food's so satiety climbs closer to the
 -- lower forage ceiling before the chance to quit gets meaningful.
-local STOP_CHANCE_EXPONENT_FOOD = 2
+local STOP_CHANCE_EXPONENT_FOOD = 3
 local STOP_CHANCE_EXPONENT_FORAGE = 3
+
+-- From a food source, satiety must close at least this fraction of the gap
+-- to the ceiling that existed when eating started before rollShouldStopEating
+-- will even consider ending it early (CONTEXT.md's Eat) - a hen that starts
+-- out already mostly fed still eats a little instead of quitting almost
+-- instantly. Forage gets no such floor; see Gauges:setEating.
+local MIN_EAT_STOP_FRACTION = 0.5
 
 -- Start-eating chance is ((ceiling-satiety)/ceiling)^exponent (see
 -- rollWantsToEat). Forage's exponent is above 1 so the chance stays low
@@ -107,17 +114,26 @@ function Gauges.new(saved)
 	self.isEating = false
 	self.eatCeiling = SATIETY_FOOD_CEILING
 	self.eatStopExponent = STOP_CHANCE_EXPONENT_FOOD
+	self.minSatietyBeforeStopRoll = self.satiety
 
 	return self
 end
 
 -- ceiling: the satiety cap for this bout of eating (SATIETY_FOOD_CEILING or
--- SATIETY_FORAGE_CEILING). Ignored while isEating is false.
+-- SATIETY_FORAGE_CEILING). Ignored while isEating is false. Starting a food-
+-- source bout (not forage) also fixes minSatietyBeforeStopRoll at the
+-- current satiety plus MIN_EAT_STOP_FRACTION of the gap to the ceiling -
+-- forage's is just its current satiety, i.e. no floor at all.
 function Gauges:setEating(isEating, ceiling)
 	self.isEating = isEating
 	self.eatCeiling = ceiling or SATIETY_FOOD_CEILING
-	self.eatStopExponent = (self.eatCeiling == SATIETY_FORAGE_CEILING)
-		and STOP_CHANCE_EXPONENT_FORAGE or STOP_CHANCE_EXPONENT_FOOD
+	local isForaging = self.eatCeiling == SATIETY_FORAGE_CEILING
+	self.eatStopExponent = isForaging and STOP_CHANCE_EXPONENT_FORAGE or STOP_CHANCE_EXPONENT_FOOD
+
+	if isEating then
+		self.minSatietyBeforeStopRoll = isForaging and self.satiety
+			or (self.satiety + (self.eatCeiling - self.satiety) * MIN_EAT_STOP_FRACTION)
+	end
 end
 
 -- Chance to start eating, weighted by how far satiety sits below `ceiling` -
@@ -128,11 +144,16 @@ function Gauges:rollWantsToEat(ceiling)
 	return math.random() < chance
 end
 
--- Chance to stop eating, rolled about once a second while eating, so an
--- early meal doesn't end almost immediately.
+-- Chance to stop eating, rolled about once a second while eating. Below
+-- minSatietyBeforeStopRoll (only ever above current satiety for a food
+-- source, never for forage - see Gauges:setEating), always keeps eating; past
+-- it, the chance rises the closer satiety already is to the ceiling.
 function Gauges:rollShouldStopEating()
 	if self.satiety >= self.eatCeiling then
 		return true
+	end
+	if self.satiety < self.minSatietyBeforeStopRoll then
+		return false
 	end
 	local chance = clamp01(self.satiety / self.eatCeiling) ^ self.eatStopExponent
 	return math.random() < chance

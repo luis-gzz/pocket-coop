@@ -5,8 +5,10 @@ display.setStatusBar(display.HiddenStatusBar)
 display.setDefault("minTextureFilter", "nearest")
 display.setDefault("magTextureFilter", "nearest")
 
+local Color = require("src.util.color")
+
 -- Backdrop behind the island, filling the whole camera.
-display.setDefault("background", 0xA2 / 0xFF, 0xDC / 0xFF, 0xC7 / 0xFF)
+display.setDefault("background", Color.hexToRGB("#a2dcc7"))
 
 local Island = require("src.systems.island")
 local YSort = require("src.systems.y_sort")
