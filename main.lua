@@ -5,8 +5,10 @@ display.setStatusBar(display.HiddenStatusBar)
 display.setDefault("minTextureFilter", "nearest")
 display.setDefault("magTextureFilter", "nearest")
 
+local Color = require("src.util.color")
+
 -- Backdrop behind the island, filling the whole camera.
-display.setDefault("background", 0xA2 / 0xFF, 0xDC / 0xFF, 0xC7 / 0xFF)
+display.setDefault("background", Color.hexToRGB("#a2dcc7"))
 
 local Island = require("src.systems.island")
 local YSort = require("src.systems.y_sort")
@@ -20,8 +22,13 @@ local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
 Island.create()
 
--- World objects (chicken, droppings, hen beds, eggs, food) depth-sort
--- against each other in this group (ADR-0005).
+-- The floor layer (hen beds) - created first so it's inserted, and therefore
+-- always renders, behind the main world group below (ADR-0014).
+YSort.createFloorLayer()
+
+-- World objects (chicken, droppings, eggs, food) depth-sort against each
+-- other in this group (ADR-0005). Hen beds don't join it - see the floor
+-- layer above.
 YSort.createGroup()
 
 -- The save file is { garden = ..., feed = ... } (ADR-0007, ADR-0011).

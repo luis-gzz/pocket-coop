@@ -19,6 +19,20 @@ local sheet = graphics.newImageSheet(SHEET_PATH, {
 local TILE_SIZE = Constants.TILE_SIZE
 local FALLBACK_KEY = "FULL|FULL|FULL|FULL"
 
+-- Each tile is rendered slightly larger than TILE_SIZE (same center, so it
+-- overlaps its neighbors by half this on every edge) to hide the hairline
+-- seams that otherwise show up between adjacent tiles on a real device: every
+-- tile is its own display object, so the GPU rounds each one's edges to the
+-- nearest physical pixel independently, and TILE_SIZE being a non-integer
+-- device-dependent value (PIXEL_SCALE isn't always a whole number) means
+-- neighboring edges can round to different pixels, leaving a thin gap of
+-- Backdrop color between them. Imperceptible here since it's the same
+-- seamless grass texture with nearest-neighbor filtering overlapping itself.
+-- 1 wasn't quite enough on a real device, then 2 still left a few gaps in a
+-- repeated pattern (possibly not pure rounding noise - worth a closer look
+-- if 4 doesn't fully clear it).
+local TILE_RENDER_OVERLAP = 4
+
 -- Every island tile is grass for now; a position outside the grid counts as
 -- a different terrain, which is exactly what gives the island a bordered
 -- edge instead of looking like an infinite flat field.
@@ -83,7 +97,9 @@ function Island.create()
 			local x = rect.minX + column * TILE_SIZE + TILE_SIZE / 2
 			local y = rect.minY + row * TILE_SIZE + TILE_SIZE / 2
 			local frame = pickFrame(column, row, layout.columns, layout.rows)
-			local tile = display.newImageRect(group, sheet, frame, TILE_SIZE, TILE_SIZE)
+			local tile = display.newImageRect(
+				group, sheet, frame, TILE_SIZE + TILE_RENDER_OVERLAP, TILE_SIZE + TILE_RENDER_OVERLAP
+			)
 			tile.x = x
 			tile.y = y
 		end
