@@ -9,6 +9,14 @@ local YSort = {}
 local worldGroup = nil
 local entries = {}
 
+-- The floor layer (ADR-0014): a separate group created and inserted below
+-- worldGroup, so anything registered here (hen beds) sorts against its own
+-- kind but always renders behind every object in worldGroup regardless of
+-- position - a toFront() here only ever reorders floorGroup's own children,
+-- never worldGroup's.
+local floorGroup = nil
+local floorEntries = {}
+
 local function defaultGetDepth(object)
 	return object.y
 end
@@ -41,13 +49,46 @@ function YSort.remove(object)
 	end
 end
 
-local function resort()
-	table.sort(entries, function(a, b)
+-- Call once, after createGroup's background layer and before createGroup
+-- itself, so floorGroup sits behind worldGroup in the display tree.
+function YSort.createFloorLayer()
+	floorGroup = display.newGroup()
+	return floorGroup
+end
+
+function YSort.getFloorGroup()
+	return floorGroup
+end
+
+function YSort.addToFloor(object, getDepth)
+	table.insert(floorEntries, { object = object, getDepth = getDepth or defaultGetDepth })
+end
+
+function YSort.removeFromFloor(object)
+	for index, entry in ipairs(floorEntries) do
+		if entry.object == object then
+			table.remove(floorEntries, index)
+			return
+		end
+	end
+end
+
+local function resortEntries(list)
+	table.sort(list, function(a, b)
 		return a.getDepth(a.object) < b.getDepth(b.object)
 	end)
-	for _, entry in ipairs(entries) do
+	for _, entry in ipairs(list) do
 		entry.object:toFront()
 	end
+end
+
+-- Which list resorts first doesn't matter for floorGroup vs. worldGroup
+-- stacking - toFront() only reorders children within their own group, so
+-- that's fixed entirely by which group was created first (see
+-- YSort.createFloorLayer's own comment). Both just need resorting each frame.
+local function resort()
+	resortEntries(floorEntries)
+	resortEntries(entries)
 end
 
 Runtime:addEventListener("enterFrame", resort)

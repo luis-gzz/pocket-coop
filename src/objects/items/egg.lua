@@ -31,13 +31,14 @@ function Egg.newFloor(x, y, onTap)
 end
 
 -- An egg sitting inside a bed's own display group (see bed.lua) - inserting
--- into it means the egg moves for free when the bed is dragged. Anchored so
--- its bottom edge, not its center, sits at the bed's center point, reading
--- as sitting in the nest rather than floating above it. onTap() is called
--- when tapped, so the caller (Garden) can collect it.
-function Egg.newInBed(bedGroup, onTap)
+-- into it means the egg moves for free when the bed is dragged. offsetX
+-- (already scaled) places it in one of the bed's egg slots (Bed.getSlotOffsetX);
+-- anchored so its bottom edge, not its center, sits at the bed's vertical
+-- center, reading as sitting in the nest rather than floating above it.
+-- onTap() is called when tapped, so the caller (Garden) can collect it.
+function Egg.newInBed(bedGroup, offsetX, onTap)
 	local image = display.newImageRect(bedGroup, IMAGE_PATH, Egg.WIDTH, Egg.HEIGHT)
-	image.x = 0
+	image.x = offsetX
 	image.y = -Egg.HEIGHT / 2
 	image:addEventListener("tap", function()
 		onTap()

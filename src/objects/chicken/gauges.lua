@@ -23,8 +23,15 @@ Gauges.FOOD_CEILING = SATIETY_FOOD_CEILING
 -- Stop-eating chance is (satiety/ceiling)^exponent (see rollShouldStopEating).
 -- Forage's exponent is higher than food's so satiety climbs closer to the
 -- lower forage ceiling before the chance to quit gets meaningful.
-local STOP_CHANCE_EXPONENT_FOOD = 2
+local STOP_CHANCE_EXPONENT_FOOD = 3
 local STOP_CHANCE_EXPONENT_FORAGE = 3
+
+-- From a food source, satiety must close at least this fraction of the gap
+-- to the ceiling that existed when eating started before rollShouldStopEating
+-- will even consider ending it early (CONTEXT.md's Eat) - a hen that starts
+-- out already mostly fed still eats a little instead of quitting almost
+-- instantly. Forage gets no such floor; see Gauges:setEating.
+local MIN_EAT_STOP_FRACTION = 0.5
 
 -- Start-eating chance is ((ceiling-satiety)/ceiling)^exponent (see
 -- rollWantsToEat). Forage's exponent is above 1 so the chance stays low
@@ -55,7 +62,8 @@ local TREAT_SATIETY_BONUS = 25
 -- Lay clock: a recurring, FSM-independent chance to lay an egg (CONTEXT.md),
 -- shaped just like the poop clock above - an accumulator rolling a check
 -- every LAY_CLOCK_INTERVAL. Gauges only gates WHEN a hen lays; src/systems/
--- garden.lua decides WHERE the egg goes (ADR-0007).
+-- garden.lua decides WHERE the egg goes, and the hen's own nest state
+-- carries out the walk there (ADR-0007, ADR-0013).
 local LAY_CLOCK_INTERVAL = 60 -- seconds between rolls
 local LAY_HAPPINESS_GATE = 33 -- below this happiness, no laying at all
 local LAY_REFRACTORY = 3 * 60 -- seconds since the last lay before laying is possible again
@@ -98,20 +106,34 @@ function Gauges.new(saved)
 	self.layClockAccumulator = saved.layClockAccumulator or 0
 	self.now = saved.now or 0
 
+	-- Set the moment a lay roll succeeds, cleared by markLaid() once the egg
+	-- actually lands (ADR-0013) - not persisted, so an app quit mid-walk just
+	-- loses that one lay attempt rather than needing its own save slot.
+	self.pendingLay = false
+
 	self.isEating = false
 	self.eatCeiling = SATIETY_FOOD_CEILING
 	self.eatStopExponent = STOP_CHANCE_EXPONENT_FOOD
+	self.minSatietyBeforeStopRoll = self.satiety
 
 	return self
 end
 
 -- ceiling: the satiety cap for this bout of eating (SATIETY_FOOD_CEILING or
--- SATIETY_FORAGE_CEILING). Ignored while isEating is false.
+-- SATIETY_FORAGE_CEILING). Ignored while isEating is false. Starting a food-
+-- source bout (not forage) also fixes minSatietyBeforeStopRoll at the
+-- current satiety plus MIN_EAT_STOP_FRACTION of the gap to the ceiling -
+-- forage's is just its current satiety, i.e. no floor at all.
 function Gauges:setEating(isEating, ceiling)
 	self.isEating = isEating
 	self.eatCeiling = ceiling or SATIETY_FOOD_CEILING
-	self.eatStopExponent = (self.eatCeiling == SATIETY_FORAGE_CEILING)
-		and STOP_CHANCE_EXPONENT_FORAGE or STOP_CHANCE_EXPONENT_FOOD
+	local isForaging = self.eatCeiling == SATIETY_FORAGE_CEILING
+	self.eatStopExponent = isForaging and STOP_CHANCE_EXPONENT_FORAGE or STOP_CHANCE_EXPONENT_FOOD
+
+	if isEating then
+		self.minSatietyBeforeStopRoll = isForaging and self.satiety
+			or (self.satiety + (self.eatCeiling - self.satiety) * MIN_EAT_STOP_FRACTION)
+	end
 end
 
 -- Chance to start eating, weighted by how far satiety sits below `ceiling` -
@@ -122,11 +144,16 @@ function Gauges:rollWantsToEat(ceiling)
 	return math.random() < chance
 end
 
--- Chance to stop eating, rolled about once a second while eating, so an
--- early meal doesn't end almost immediately.
+-- Chance to stop eating, rolled about once a second while eating. Below
+-- minSatietyBeforeStopRoll (only ever above current satiety for a food
+-- source, never for forage - see Gauges:setEating), always keeps eating; past
+-- it, the chance rises the closer satiety already is to the ceiling.
 function Gauges:rollShouldStopEating()
 	if self.satiety >= self.eatCeiling then
 		return true
+	end
+	if self.satiety < self.minSatietyBeforeStopRoll then
+		return false
 	end
 	local chance = clamp01(self.satiety / self.eatCeiling) ^ self.eatStopExponent
 	return math.random() < chance
@@ -148,12 +175,16 @@ local function rollPoopClock(self)
 	return false
 end
 
--- Gates on happiness and refractory period, then rolls a chance that rises
--- with both happiness and time since the last lay. On success, records the
--- new lastLayAt (also closing the refractory gate for any other roll later
--- in the same update() call, so a burst of intervals can produce at most
--- one lay).
+-- Gates on a lay already pending (a hen mid-walk-to-lay can't roll a second
+-- one), happiness, and the refractory period, then rolls a chance that rises
+-- with both happiness and time since the last lay. On success, sets
+-- pendingLay (closing the gate above for any later roll until markLaid()
+-- clears it) - lastLayAt itself only advances once the egg actually lands.
 local function rollLayClock(self)
+	if self.pendingLay then
+		return false
+	end
+
 	local happiness = self:getHappiness()
 	if happiness < LAY_HAPPINESS_GATE then
 		return false
@@ -171,7 +202,7 @@ local function rollLayClock(self)
 	local layChance = clamp01(happinessFactor * timeFactor)
 
 	if math.random() < layChance then
-		self.lastLayAt = self.now
+		self.pendingLay = true
 		return true
 	end
 	return false
@@ -188,9 +219,12 @@ end
 
 -- Advances the simulation by dt seconds (already clamped and time-scaled by
 -- Clock). dirtyItemCount is the garden-wide dropping + floor egg count,
--- supplied by Garden's own frame loop. Returns spawned droppings, whether a
--- lay happened, and satiety delivered this call.
-function Gauges:update(dt, dirtyItemCount, chickenX, chickenY)
+-- supplied by Garden's own frame loop. isHeld suppresses the lay clock
+-- entirely (mirroring how a held hen also can't be claimed by a treat, see
+-- chicken.lua), so a drag can never yank a hen out of a walk it hasn't even
+-- started yet. Returns spawned droppings, whether a lay happened, and
+-- satiety delivered this call.
+function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld)
 	self.now = self.now + dt
 
 	local satietyBefore = self.satiety
@@ -216,15 +250,25 @@ function Gauges:update(dt, dirtyItemCount, chickenX, chickenY)
 	end
 
 	local laid = false
-	self.layClockAccumulator = self.layClockAccumulator + dt
-	while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
-		self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
-		if rollLayClock(self) then
-			laid = true
+	if not isHeld then
+		self.layClockAccumulator = self.layClockAccumulator + dt
+		while self.layClockAccumulator >= LAY_CLOCK_INTERVAL do
+			self.layClockAccumulator = self.layClockAccumulator - LAY_CLOCK_INTERVAL
+			if rollLayClock(self) then
+				laid = true
+			end
 		end
 	end
 
 	return spawned, laid, delivered
+end
+
+-- Called once a pending lay actually lands (egg created), whether in a bed
+-- or on the floor - advances the refractory window from here, not from when
+-- the lay was decided, and reopens the gate for another roll (ADR-0013).
+function Gauges:markLaid()
+	self.lastLayAt = self.now
+	self.pendingLay = false
 end
 
 -- Permanent satiety bump from a mealworm, uncapped by the forage ceiling.

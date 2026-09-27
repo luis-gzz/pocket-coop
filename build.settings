@@ -1,8 +1,43 @@
 settings =
 {
+	-- Excludes files from the app's "system.ResourceDirectory" (Solar2D's own
+	-- welcome-template convention). .git matters here in particular: unlike
+	-- JumpyLlamaRedux (whose Solar2D project lives in a source/ subfolder,
+	-- separate from its repo root), this project's root IS the git repo root,
+	-- so without this, the build copies .git into the .app bundle and the
+	-- packaging step's `xattr -cr` then fails with Permission denied on
+	-- git's read-only object files. Images.xcassets and LaunchScreen.storyboardc
+	-- are excluded too since both are already compiled/referenced through
+	-- iphone.xcassets/UILaunchStoryboardName below - copying them again as
+	-- loose resources would just be redundant (and storyboardc is iOS-only).
+	excludeFiles =
+	{
+		all = { ".git", "Images.xcassets" },
+		android = { "LaunchScreen.storyboardc" },
+	},
+
+	splashScreen =
+	{
+		ios = {
+			enable = false,
+		},
+		android = {
+			enable = true,
+			image = "splash_screen.png",
+		},
+	},
+
 	orientation =
 	{
 		default = "portrait",
 		supported = { "portrait" },
+	},
+
+	iphone =
+	{
+		xcassets = "Images.xcassets",
+		plist = {
+			UILaunchStoryboardName = "LaunchScreen",
+		},
 	},
 }
