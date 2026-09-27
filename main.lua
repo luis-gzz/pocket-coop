@@ -5,6 +5,13 @@ display.setStatusBar(display.HiddenStatusBar)
 display.setDefault("minTextureFilter", "nearest")
 display.setDefault("magTextureFilter", "nearest")
 
+-- At those same non-integer scales the GPU can land a sample just past a
+-- frame's edge, and with nearest filtering that pulls in a whole texel from
+-- the neighboring frame in the sheet - showing up as thin dark lines along
+-- tile/sprite edges. This insets every image sheet frame's sampling by half a
+-- texel. Must be set before any graphics.newImageSheet call.
+display.setDefault("isImageSheetSampledInsideFrame", true)
+
 local Color = require("src.util.color")
 
 -- Backdrop behind the island, filling the whole camera.
