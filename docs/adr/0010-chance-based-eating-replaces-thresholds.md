@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0015
+---
+
 # Chance-based eating replaces the enter/exit threshold hysteresis
 
 Eating used to flip on a fixed pair of thresholds: enter Eat below 50 satiety, stay until 80. Placed food (src/feed.lua) needed a second, higher ceiling - 100 with a food source available, 50 while only foraging - and a fixed enter/exit pair can't express "the ceiling itself changes": clamping satiety at the lower ceiling would either trap a foraging chicken exactly at 50 forever once it got there, or (with the exit threshold above the forage ceiling) never let it stop eating at all.

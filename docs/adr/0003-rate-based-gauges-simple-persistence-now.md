@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0016
 ---
 
 # Gauges are built for future offline reconstruction, but this milestone only does simple persistence

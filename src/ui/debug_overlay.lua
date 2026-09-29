@@ -1,9 +1,11 @@
 local Clock = require("src.systems.clock")
 local Constants = require("src.util.constants")
+local Garden = require("src.systems.garden")
 
 -- A small corner button that opens a popover of discrete time-scale
--- presets, for tuning. Owns no game logic - purely pokes Clock's debug
--- time-scale multiplier.
+-- presets, plus offline skip buttons that run the real catch-up for a fake
+-- absence (ADR-0016), for tuning. Owns no game logic - purely pokes Clock's
+-- debug time-scale multiplier and Garden.catchUp.
 local DebugOverlay = {}
 
 -- All spatial constants below are native * Constants.PIXEL_SCALE, like every
@@ -18,6 +20,8 @@ local BUTTON_GAP = 3 * Constants.PIXEL_SCALE
 local POPOVER_GAP = 3 * Constants.PIXEL_SCALE
 local CORNER_RADIUS = 2 * Constants.PIXEL_SCALE
 local STROKE_WIDTH = 0.5 * Constants.PIXEL_SCALE
+
+local SKIP_HOURS = { 1, 6, 24 }
 
 function DebugOverlay.create()
 	local root = display.newGroup()
@@ -76,25 +80,35 @@ function DebugOverlay.create()
 		group.x = x
 		group.y = y + TOGGLE_HEIGHT + POPOVER_GAP
 
-		local buttonX = 0
-		for _, preset in ipairs(Clock.PRESETS) do
-			local button = display.newRoundedRect(group, buttonX, 0, BUTTON_WIDTH, BUTTON_HEIGHT, CORNER_RADIUS)
+		local function addButton(buttonX, buttonY, text, onTap)
+			local button = display.newRoundedRect(group, buttonX, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT, CORNER_RADIUS)
 			button.anchorX = 0
 			button.anchorY = 0
 			button:setFillColor(0.92, 0.92, 0.92)
 			button.strokeWidth = STROKE_WIDTH
 			button:setStrokeColor(0.4, 0.4, 0.4)
 
-			local label = display.newText(group, preset .. "x", buttonX + BUTTON_WIDTH / 2, BUTTON_HEIGHT / 2, Constants.FONT, Constants.FONT_SIZE_SMALL)
+			local label = display.newText(group, text, buttonX + BUTTON_WIDTH / 2, buttonY + BUTTON_HEIGHT / 2, Constants.FONT, Constants.FONT_SIZE_SMALL)
 			label:setFillColor(0, 0, 0)
 
 			button:addEventListener("tap", function()
-				Clock.setTimeScale(preset)
-				refreshLabel()
+				onTap()
 				return true
 			end)
+		end
 
-			buttonX = buttonX + BUTTON_WIDTH + BUTTON_GAP
+		for index, preset in ipairs(Clock.PRESETS) do
+			addButton((index - 1) * (BUTTON_WIDTH + BUTTON_GAP), 0, preset .. "x", function()
+				Clock.setTimeScale(preset)
+				refreshLabel()
+			end)
+		end
+
+		-- Second row: run offline catch-up as if the app had been away this long.
+		for index, hours in ipairs(SKIP_HOURS) do
+			addButton((index - 1) * (BUTTON_WIDTH + BUTTON_GAP), BUTTON_HEIGHT + BUTTON_GAP, "+" .. hours .. "h", function()
+				Garden.catchUp(hours * 3600)
+			end)
 		end
 
 		current = { dismiss = dismiss, group = group }

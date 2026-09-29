@@ -54,8 +54,13 @@ end
 
 timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 
+-- Saving on the way out stamps the save's lastUpdate; coming back catches
+-- the garden up for the time away (ADR-0016). Launch catches up inside
+-- Garden.load.
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
 		Garden.save()
+	elseif event.type == "applicationResume" then
+		Garden.catchUpToNow()
 	end
 end)

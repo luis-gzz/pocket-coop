@@ -2,8 +2,11 @@ local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Island = require("src.systems.island")
 local Clock = require("src.systems.clock")
+local Tuning = require("src.systems.tuning")
 local Save = require("src.systems.save")
 local Feed = require("src.systems.feed")
+local Offline = require("src.systems.offline")
+local Gauges = require("src.objects.chicken.gauges")
 local Chicken = require("src.objects.chicken.chicken")
 local Bed = require("src.objects.items.bed")
 local Egg = require("src.objects.items.egg")
@@ -12,7 +15,7 @@ local Dropping = require("src.objects.items.dropping")
 -- The single shared owner of every chicken, hen bed, egg, and dropping in
 -- the garden, plus the player's collected-egg count, with Feed held
 -- alongside it for the food side (CONTEXT.md's "Garden"). A hen's Gauges
--- (its lay clock) decides WHEN she lays; this module decides WHERE the
+-- (its lay progress) decides WHEN she lays; this module decides WHERE the
 -- resulting egg goes and whose cleanliness a dropping counts against, since
 -- beds/eggs/droppings belong to the garden as a whole, not to any one hen
 -- (ADR-0007); the hen's own nest state carries out the walk there (ADR-0013).
@@ -29,6 +32,9 @@ local eggs = {} -- { view, bed (nil for a floor egg), slot (only set if bed), x,
 local droppings = {} -- array of Dropping view instances (each carries its own .record)
 local collectedCount = 0
 local lastFrameTime = nil
+-- Wall-clock time (os.time()) the simulation was last known to be current -
+-- stamped on every save, read back to size offline catch-up (ADR-0016).
+local lastUpdate = nil
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
@@ -155,6 +161,7 @@ end
 -- Wired as Feed's own save callback too (see Garden.load), so a food-side
 -- mutation saves through here as well.
 function Garden.save()
+	lastUpdate = os.time()
 	Save.write({
 		garden = Garden.getSaveData(),
 		feed = Feed.getSaveData(),
@@ -177,6 +184,15 @@ local function insertDropping(record)
 		Garden.removeDropping(droppingView)
 	end)
 	table.insert(droppings, view)
+end
+
+-- A uniformly random point on the island for an object of the given size -
+-- where offline catch-up puts things it has no position for.
+local function randomIslandPoint(width, height)
+	local bounds = Island.getInnerBounds()
+	local x = bounds.minX + width / 2 + math.random() * (bounds.maxX - bounds.minX - width)
+	local y = bounds.minY + height / 2 + math.random() * (bounds.maxY - bounds.minY - height)
+	return x, y
 end
 
 function Garden.addDropping(record)
@@ -232,7 +248,7 @@ local function createFloorEgg(x, y)
 end
 
 -- Decides where a hen headed to lay should walk, and what it'll do once it
--- gets there (CONTEXT.md's Nest state) - called once when the lay clock
+-- gets there (CONTEXT.md's Nest state) - called once when lay progress
 -- fires, and again on arrival if the chosen bed filled up in the meantime.
 -- Priority: nearest bed with an open slot: else a floor spot within
 -- FLOOR_LAY_RADIUS of the nearest bed (every one full); else "immediate"
@@ -258,19 +274,25 @@ end
 -- position). Returns false only when a "bed" target filled up since it was
 -- picked, so the hen can ask Garden.pickLayTarget again instead of laying
 -- somewhere stale.
-function Garden.commitLay(target, x, y)
+local function placeEgg(target, x, y)
 	if target.kind == "bed" then
 		if not findOpenSlot(target.bed) then
 			return false
 		end
 		attachEggToBed(target.bed)
-		Garden.save()
 		return true
 	end
 
 	createFloorEgg(x, y)
-	Garden.save()
 	return true
+end
+
+function Garden.commitLay(target, x, y)
+	local placed = placeEgg(target, x, y)
+	if placed then
+		Garden.save()
+	end
+	return placed
 end
 
 -- Removes an egg (in a bed or on the floor), frees its slot if it had one,
@@ -323,13 +345,110 @@ local function onFrame(event)
 	local dirtyItemCount = Garden.getDirtyItemCount()
 
 	for _, chicken in ipairs(chickens) do
-		local spawned, laid = chicken:update(Clock.getDt(), dirtyItemCount)
+		local spawned, laid = chicken:update(Clock.getDt(), dirtyItemCount, Feed.hasFoodSource())
 		for _, record in ipairs(spawned) do
 			Garden.addDropping(record)
 		end
 		if laid then
 			chicken:beginNesting(Garden.pickLayTarget(chicken:getPosition()))
 		end
+	end
+end
+
+-- Brings the garden up to date after `elapsedSeconds` away (app closed,
+-- backgrounded, or a debug skip) in closed form - see src/systems/
+-- offline.lua and ADR-0016. Follows the plan's order of operations: expire
+-- timestamp buffs, then food + satiety, droppings, eggs, and finally
+-- cleanliness; then saves.
+function Garden.catchUp(elapsedSeconds)
+	elapsedSeconds = math.max(0, math.min(elapsedSeconds or 0, Tuning.OFFLINE_CAP))
+	if elapsedSeconds <= 0 or #chickens == 0 then
+		Garden.save()
+		return
+	end
+
+	-- Whatever each chicken was mid-way through no longer applies; this also
+	-- releases any treat claims before the treats are taken below.
+	for _, chicken in ipairs(chickens) do
+		chicken:resetForCatchUp()
+	end
+
+	-- A treat left out is eaten first, by the hungriest chicken, before the
+	-- refill phase. Its happiness buff is granted at the start of the
+	-- absence and expires with it.
+	for _, treat in ipairs(Feed.takeTreats()) do
+		local hungriest = chickens[1]
+		for _, chicken in ipairs(chickens) do
+			if chicken.gauges.satiety < hungriest.gauges.satiety then
+				hungriest = chicken
+			end
+		end
+		hungriest.gauges:applyTreat(treat.fullness)
+		hungriest.gauges:applyHappinessBuff()
+	end
+
+	local input = { units = Feed.getTotalUnits(), dirtyItemCount = Garden.getDirtyItemCount(), chickens = {} }
+	for i, chicken in ipairs(chickens) do
+		local gauges = chicken.gauges
+		input.chickens[i] = {
+			satiety = gauges.satiety,
+			poopProgress = gauges.poopProgress,
+			poopThreshold = gauges.poopThreshold,
+			layProgress = gauges.layProgress,
+			layThreshold = gauges.layThreshold,
+		}
+	end
+
+	local result = Offline.compute(input, elapsedSeconds)
+	Feed.drainOldest(result.unitsConsumed)
+
+	for i, chicken in ipairs(chickens) do
+		local gauges = chicken.gauges
+		local outcome = result.chickens[i]
+		local startNow = gauges.now
+
+		-- Timestamp buffs (happiness, satisfied) and the lay gap simply pass.
+		gauges.now = gauges.now + elapsedSeconds
+		gauges.satiety = outcome.satiety
+		gauges.poopProgress = outcome.poopProgress
+		gauges.poopThreshold = outcome.poopThreshold
+		gauges.layProgress = outcome.layProgress
+		gauges.layThreshold = outcome.layThreshold
+
+		for n = 1, outcome.droppings do
+			local x, y = randomIslandPoint(Dropping.WIDTH, Dropping.HEIGHT)
+			local createdAt = startNow + elapsedSeconds * n / (outcome.droppings + 1)
+			insertDropping({ x = x, y = y, createdAt = createdAt })
+		end
+
+		local hx, hy = chicken:getPosition()
+		for _ = 1, outcome.eggs do
+			local target = Garden.pickLayTarget(hx, hy)
+			local x, y = target.x, target.y
+			if target.kind == "immediate" then
+				x, y = randomIslandPoint(Egg.WIDTH, Egg.HEIGHT)
+			end
+			placeEgg(target, x, y)
+		end
+		if outcome.eggs > 0 then
+			gauges.lastLayAt = gauges.now - elapsedSeconds / (outcome.eggs + 1)
+		end
+	end
+
+	-- Over a multi-hour absence the ease toward the target has converged.
+	local cleanliness = Gauges.cleanlinessTarget(Garden.getDirtyItemCount())
+	for _, chicken in ipairs(chickens) do
+		chicken.gauges.cleanliness = cleanliness
+	end
+
+	Garden.save()
+end
+
+-- Catches up for however long the app was away since the last save (or 0
+-- if the clock moved backwards) - on launch and on every resume.
+function Garden.catchUpToNow()
+	if lastUpdate then
+		Garden.catchUp(os.time() - lastUpdate)
 	end
 end
 
@@ -361,6 +480,7 @@ function Garden.getSaveData()
 	end
 
 	return {
+		lastUpdate = lastUpdate,
 		collectedCount = collectedCount,
 		beds = savedBeds,
 		eggs = savedEggs,
@@ -383,6 +503,7 @@ function Garden.load(saved)
 	Feed.setSaveCallback(Garden.save)
 
 	collectedCount = savedGarden.collectedCount or 0
+	lastUpdate = savedGarden.lastUpdate
 	beds = {}
 	eggs = {}
 	droppings = {}
@@ -412,6 +533,8 @@ function Garden.load(saved)
 		pickLayTarget = Garden.pickLayTarget,
 		commitLay = Garden.commitLay,
 	}))
+
+	Garden.catchUpToNow()
 
 	Runtime:addEventListener("enterFrame", onFrame)
 end

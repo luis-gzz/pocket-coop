@@ -1,5 +1,6 @@
 local Constants = require("src.util.constants")
 local Island = require("src.systems.island")
+local Tuning = require("src.systems.tuning")
 local SeedPatch = require("src.objects.items.seed_patch")
 local Lettuce = require("src.objects.items.lettuce")
 local Mealworm = require("src.objects.items.mealworm")
@@ -100,13 +101,14 @@ local function removeItem(item)
 	end
 end
 
--- Debits a source's remaining capacity by the satiety actually delivered.
--- Returns false once fully depleted and removed.
-function Feed.deplete(item, amount)
+-- Debits a source's remaining capacity (in food units) by the satiety
+-- actually delivered, converted at SATIETY_PER_UNIT. Returns false once
+-- fully depleted and removed.
+function Feed.deplete(item, satietyDelivered)
 	if item.removed then
 		return false
 	end
-	item.remaining = math.max(0, item.remaining - amount)
+	item.remaining = math.max(0, item.remaining - satietyDelivered / Tuning.SATIETY_PER_UNIT)
 	if item.updateVisual then
 		item.updateVisual()
 	end
@@ -163,6 +165,59 @@ function Feed.claimTreatNear(chicken, x, y)
 	return nearest
 end
 
+-- Total food units left across every food source - offline catch-up's
+-- food pool (ADR-0016).
+function Feed.getTotalUnits()
+	local total = 0
+	for _, item in ipairs(items) do
+		if item.kind == "source" then
+			total = total + item.remaining
+		end
+	end
+	return total
+end
+
+-- Drains `units` from food sources oldest-first (offline has no positions
+-- to pick a nearest one by), removing any that empty. Items stay in
+-- placement order, so list order is age order. Doesn't save - catch-up
+-- saves once at the end.
+function Feed.drainOldest(units)
+	local index = 1
+	while units > 0 and index <= #items do
+		local item = items[index]
+		if item.kind == "source" then
+			local taken = math.min(units, item.remaining)
+			units = units - taken
+			item.remaining = item.remaining - taken
+			if item.remaining <= 0 then
+				removeItem(item)
+			else
+				if item.updateVisual then
+					item.updateVisual()
+				end
+				index = index + 1
+			end
+		else
+			index = index + 1
+		end
+	end
+end
+
+-- Removes every treat and returns their records, for offline catch-up to
+-- feed to whichever chicken would have reached each first. Callers must
+-- release any claims beforehand. Doesn't save.
+function Feed.takeTreats()
+	local taken = {}
+	for index = #items, 1, -1 do
+		local item = items[index]
+		if item.kind == "treat" then
+			table.insert(taken, 1, item)
+			removeItem(item)
+		end
+	end
+	return taken
+end
+
 -- Frees a treat's claim without consuming it.
 function Feed.releaseTreatClaim(item)
 	if item and item.kind == "treat" and not item.removed then
@@ -177,8 +232,9 @@ function Feed.consumeTreat(item)
 	save()
 end
 
-local function createSeedPatch(x, y, remaining, offsets)
+local function createSeedPatch(x, y, remaining, offsets, placedAt)
 	local item = {
+		placedAt = placedAt,
 		kind = "source",
 		type = "seed",
 		x = x,
@@ -199,14 +255,15 @@ function Feed.placeSeedPatch(x, y)
 	if not finalX then
 		return
 	end
-	local item = createSeedPatch(finalX, finalY, SeedPatch.CAPACITY, SeedPatch.scatterOffsets())
+	local item = createSeedPatch(finalX, finalY, SeedPatch.CAPACITY, SeedPatch.scatterOffsets(), os.time())
 	table.insert(items, item)
 	save()
 	return item
 end
 
-local function createLettuceItem(x, y, remaining)
+local function createLettuceItem(x, y, remaining, placedAt)
 	local item = {
+		placedAt = placedAt,
 		kind = "source",
 		type = "lettuce",
 		x = x,
@@ -226,7 +283,7 @@ function Feed.placeLettuce(x, y)
 	if not finalX then
 		return
 	end
-	local item = createLettuceItem(finalX, finalY, Lettuce.CAPACITY)
+	local item = createLettuceItem(finalX, finalY, Lettuce.CAPACITY, os.time())
 	table.insert(items, item)
 	save()
 	return item
@@ -236,6 +293,7 @@ local function createMealwormItem(x, y)
 	local item = {
 		kind = "treat",
 		type = "mealworm",
+		fullness = Mealworm.FULLNESS,
 		x = x,
 		y = y,
 		width = Mealworm.WIDTH,
@@ -293,6 +351,7 @@ function Feed.getSaveData()
 				y = item.y,
 				remaining = item.remaining,
 				offsets = item.offsets,
+				placedAt = item.placedAt,
 			})
 		else
 			table.insert(savedTreats, { x = item.x, y = item.y })
@@ -310,9 +369,11 @@ function Feed.load(saved)
 	for _, savedSource in ipairs(saved.sources or {}) do
 		local item
 		if savedSource.type == "lettuce" then
-			item = createLettuceItem(savedSource.x, savedSource.y, savedSource.remaining)
+			item = createLettuceItem(savedSource.x, savedSource.y, savedSource.remaining, savedSource.placedAt)
 		else
-			item = createSeedPatch(savedSource.x, savedSource.y, savedSource.remaining, savedSource.offsets)
+			item = createSeedPatch(
+				savedSource.x, savedSource.y, savedSource.remaining, savedSource.offsets, savedSource.placedAt
+			)
 		end
 		table.insert(items, item)
 	end

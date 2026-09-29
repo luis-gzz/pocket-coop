@@ -12,6 +12,9 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 12, 5
 
 Mealworm.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Mealworm.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
+-- Instant satiety on being eaten - a per-treat-type property, since future
+-- treats will differ.
+Mealworm.FULLNESS = 25
 Mealworm.DESCRIPTOR = { icon = IMAGE_PATH, width = Mealworm.WIDTH, height = Mealworm.HEIGHT, type = "mealworm" }
 
 -- ms; matches chicken.lua's own long-press threshold.

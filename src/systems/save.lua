@@ -1,7 +1,8 @@
 local json = require("json")
 
--- Plain JSON file persistence (ADR-0003): no offline catchup math, values
--- just resume exactly as saved next launch.
+-- Plain JSON file persistence (ADR-0003). Carries a wall-clock lastUpdate
+-- so Garden can catch up for time spent away (ADR-0016) - the catch-up math
+-- itself lives in src/systems/offline.lua, not here.
 local Save = {}
 
 local FILE_NAME = "chicken_save.json"
