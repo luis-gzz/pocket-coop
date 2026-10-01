@@ -1,22 +1,9 @@
 local Tuning = require("src.systems.tuning")
 
--- Per-chicken satiety/cleanliness/happiness model. Pure data + rates, no
--- display objects here (see src/objects/items/dropping.lua for the visual
--- side) - keeps this module the single place gauge math happens (ADR-0003).
--- Every constant comes from src/systems/tuning.lua, the same table offline
--- catch-up reads (ADR-0016).
---
--- Never requires Garden, Feed or Clock directly: dt is passed in already
--- time-scaled (from Clock, via Chicken), and dirtyItemCount (droppings +
--- floor eggs, a garden-wide count) and hasSource (whether any food source
--- exists) are passed in by Garden's own per-frame loop. See garden.lua and
--- chicken.lua.
+-- Per-chicken satiety/cleanliness/happiness math - pure data, no display
+-- objects. Constants come from src/systems/tuning.lua (ADR-0016).
 local Gauges = {}
 Gauges.__index = Gauges
-
--- Cleanliness eases toward a target set by how many dirty items exist
--- garden-wide (ADR-0004), rather than draining directly.
-local CLEAN_EASE_RATE = 0.05 -- fraction of the remaining gap closed per second
 
 -- Scatters droppings spawned near the chicken so stacked ones stay visually
 -- distinct.
@@ -44,9 +31,14 @@ function Gauges.cleanlinessTarget(dirtyItemCount)
 	return clamp100(100 - dirtyItemCount * Tuning.CLEAN_PENALTY_PER_DIRTY_ITEM)
 end
 
--- Happiness as a pure function, shared by getHappiness and offline
--- catch-up. Satiety is remapped so HAPPINESS_SATIETY_KNEE and above reads
--- as fully fed, keeping a fed chicken's hunger cycle from jittering mood.
+-- Eases cleanliness toward `target` over dt (ADR-0004). Closed form, so one
+-- large dt lands exactly where many small frames would.
+function Gauges.easeCleanliness(current, target, dt)
+	return target + (current - target) * math.exp(-Tuning.CLEAN_EASE_RATE * dt)
+end
+
+-- Happiness as a pure function, shared with offline catch-up. Satiety at or
+-- above HAPPINESS_SATIETY_KNEE counts as fully fed.
 function Gauges.happinessFor(satiety, cleanliness, buffActive)
 	satiety = clamp100(satiety * 100 / Tuning.HAPPINESS_SATIETY_KNEE)
 	local weightSatiety = (100 - satiety) + HAPPINESS_K
@@ -68,9 +60,8 @@ function Gauges.layRatePerHour(happiness)
 	return Tuning.LAY_BASE_PER_HOUR * (Tuning.LAY_MIN_RATE_FACTOR + (1 - Tuning.LAY_MIN_RATE_FACTOR) * t)
 end
 
--- saved: an optional table (from src/systems/save.lua) to resume from. All
--- timestamps live on the same internal `now` clock, which offline catch-up
--- advances by the time the app was away (ADR-0016).
+-- saved: an optional table to resume from. Timestamps use the internal
+-- `now`, which offline catch-up advances by the time away (ADR-0016).
 function Gauges.new(saved)
 	saved = saved or {}
 	local self = setmetatable({}, Gauges)
@@ -97,9 +88,8 @@ function Gauges.new(saved)
 	self.layThreshold = saved.layThreshold or Tuning.randomIn(Tuning.THRESHOLD_JITTER)
 	self.lastLayAt = saved.lastLayAt or -math.huge
 
-	-- Set the moment lay progress fires, cleared by markLaid() once the egg
-	-- actually lands (ADR-0013) - not persisted, and lay progress is only
-	-- spent in markLaid(), so an app quit mid-walk just re-fires next launch.
+	-- Set when lay progress fires, cleared by markLaid() once the egg lands
+	-- (ADR-0013). Not persisted - a quit mid-walk just re-fires next launch.
 	self.pendingLay = false
 
 	self.isEating = false
@@ -137,9 +127,8 @@ function Gauges:getHungerMode()
 	return self.hungerMode
 end
 
--- Starts one bout of eating (the eat state's enter). From a food source, a
--- bout closes half the gap to 100, or all of it once the gap is small
--- enough; foraging eats up to forageStop, never past the forage ceiling.
+-- Starts one bout: half the gap to 100 from a source (all of it once small),
+-- or up to forageStop when foraging.
 function Gauges:startBout(fromSource)
 	self.isEating = true
 	if fromSource then
@@ -155,9 +144,8 @@ function Gauges:stopEating()
 	self.boutTarget = nil
 end
 
--- Mode follows whether food exists right now: fresh food pulls a
--- moderately hungry chicken into a food cycle at once, and food running out
--- mid-cycle drops back to the forage trigger.
+-- Mode follows whether food exists right now; placing or running out of food
+-- switches it mid-cycle.
 local function updateHungerMode(self, hasSource)
 	local mode = hasSource and "food" or "forage"
 	if self.hungerMode == mode then
@@ -182,11 +170,8 @@ function Gauges:isSatisfied()
 	return self.now < self.satisfiedUntil
 end
 
--- Advances the simulation by dt seconds (already clamped and time-scaled by
--- Clock). isHeld keeps lay progress from firing (it still accrues), so a
--- drag can never yank a hen out of a walk it hasn't even started yet.
--- Returns spawned dropping records, whether a lay fired, the satiety
--- delivered this call, and whether the current bout just finished.
+-- Advances by dt (time-scaled). Returns spawned droppings, whether a lay
+-- fired (never while held), satiety delivered, and whether the bout finished.
 function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld, hasSource)
 	self.now = self.now + dt
 
@@ -215,8 +200,7 @@ function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld, hasSource
 		endHungerCycle(self)
 	end
 
-	local target = Gauges.cleanlinessTarget(dirtyItemCount)
-	self.cleanliness = self.cleanliness + (target - self.cleanliness) * CLEAN_EASE_RATE * dt
+	self.cleanliness = Gauges.easeCleanliness(self.cleanliness, Gauges.cleanlinessTarget(dirtyItemCount), dt)
 
 	local spawned = {}
 	self.poopProgress = self.poopProgress + Tuning.POOP_RATE * dt
@@ -239,9 +223,8 @@ function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld, hasSource
 	return spawned, laid, delivered, boutDone
 end
 
--- Called once a pending lay actually lands (egg created), whether in a bed
--- or on the floor - spends the progress, starts the minimum gap from here,
--- and reopens the gate (ADR-0013).
+-- Called once a pending egg lands: spends the progress and starts the
+-- minimum gap from here (ADR-0013).
 function Gauges:markLaid()
 	self.layProgress = math.max(0, self.layProgress - self.layThreshold)
 	self.layThreshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
@@ -249,9 +232,8 @@ function Gauges:markLaid()
 	self.pendingLay = false
 end
 
--- Instant satiety from a treat (each treat type defines its own amount),
--- uncapped by the forage ceiling. Reaching 100 grants the satisfied buff
--- like any meal.
+-- Instant satiety from a treat (amount per treat type). Reaching 100 grants
+-- the satisfied buff like any meal.
 function Gauges:applyTreat(amount)
 	local before = self.satiety
 	self.satiety = clamp100(self.satiety + amount)

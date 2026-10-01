@@ -96,10 +96,8 @@ local function pickEatingSpot(target)
 	return x, y
 end
 
--- Where a hungry chicken goes next (ADR-0015): "approach" (with the
--- nearest food source picked as its target) during a food cycle, "eat"
--- (forage in place) during a forage cycle, or nil when it isn't hungry, is
--- mid-way through a break between bouts, or its food just vanished.
+-- Where a hungry chicken goes next (ADR-0015): "approach" (food cycle),
+-- "eat" (forage cycle), or nil if not hungry, on a bout break, or food vanished.
 local function pickHungerState(chicken)
 	if chicken.onBoutBreak then
 		return nil
@@ -298,9 +296,7 @@ function Chicken:cancelBoutBreak()
 	self.onBoutBreak = false
 end
 
--- Offline catch-up (ADR-0016) replaces this chicken's gauges wholesale, so
--- whatever it was mid-way through no longer applies: drop any food target,
--- nest walk, and bout break, clear the hunger cycle, and settle into idle.
+-- Drops whatever the chicken was doing before offline catch-up (ADR-0016).
 -- Lay progress is kept, so a pending egg is counted by catch-up instead.
 function Chicken:resetForCatchUp()
 	self:setFoodTarget(nil)
@@ -333,14 +329,28 @@ function Chicken:getPosition()
 	return self.view.x, self.view.y
 end
 
+-- A random point within the chicken's movement bounds, where it reappears
+-- after offline catch-up.
+function Chicken.randomSpot()
+	local bounds = getBounds()
+	return bounds.minX + math.random() * (bounds.maxX - bounds.minX),
+		bounds.minY + math.random() * (bounds.maxY - bounds.minY)
+end
+
+-- Moves the chicken instantly, hit target included. Callers stop any walk
+-- first (resetForCatchUp does).
+function Chicken:teleportTo(x, y)
+	self.view.x, self.view.y = x, y
+	self.hitArea.x, self.hitArea.y = x, y
+end
+
 -- Driven every frame by garden.lua's own frame loop (not a private listener
 -- here - see garden.lua for why): drives the gauges, debits any food source
 -- being eaten from, and checks for a nearby treat alert. dt is already
 -- time-scaled (from Clock); dirtyItemCount is the garden-wide dropping +
--- floor egg count; hasSource is whether any food source exists. Returns any
--- newly spawned dropping records and whether a lay happened this call, so
--- Garden can create their views / hatch the egg - both are Garden-owned
--- concerns now, not this chicken's.
+-- floor egg count. Returns any newly spawned dropping records and whether a
+-- lay happened this call, so Garden can create their views / hatch the egg -
+-- both are Garden-owned concerns now, not this chicken's.
 function Chicken:update(dt, dirtyItemCount, hasSource)
 	-- Keeps the hit target glued to the chicken and always frontmost.
 	self.hitArea.x = self.view.x
@@ -364,11 +374,8 @@ function Chicken:update(dt, dirtyItemCount, hasSource)
 		finishBout(self)
 	end
 
-	-- Crossing a hunger trigger (or a bout break ending) is noticed here,
-	-- in the gauge update, rather than waiting on the next re-decide - so a
-	-- high time scale can't overshoot it. Only idle/wander are interrupted,
-	-- and not while the tooltip holds the chicken still - plus a forage bout
-	-- the moment food is placed, so fresh food draws the chicken right away.
+	-- Hunger is acted on here, not at the next re-decide, so high time scale
+	-- can't overshoot it. Interrupts idle/wander, or foraging once food appears.
 	local state = self.machine.name
 	local isForaging = state == "eat" and not self.foodTarget
 	local interruptible = state == "idle" or state == "wander"
@@ -635,9 +642,8 @@ STATES = {
 		end,
 	},
 
-	-- One bout of eating in place, from a claimed source or foraging with no
-	-- target. Ends when Gauges reports the bout's target reached (see
-	-- finishBout), or earlier if the source runs out or something preempts it.
+	-- One bout of eating, from a claimed source or foraging. Ends at the
+	-- bout's target (finishBout) or when preempted or the source runs out.
 	eat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")

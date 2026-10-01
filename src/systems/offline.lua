@@ -1,17 +1,12 @@
 local Tuning = require("src.systems.tuning")
 local Gauges = require("src.objects.chicken.gauges")
 
--- Offline catch-up math (ADR-0016): given the state at close and how long
--- the app was away, computes where watching would have landed - in a few
--- closed-form phases, never by stepping through time. Pure data in, data
--- out; src/systems/garden.lua applies the result to the world. Every
--- constant comes from src/systems/tuning.lua, the same table the online
--- simulation reads.
+-- Offline catch-up math (ADR-0016): closed-form phases, never stepping time.
+-- Pure data in and out; garden.lua applies the result.
 local Offline = {}
 
--- Spends whole thresholds out of `progress`, resampling the threshold after
--- each - the same jittered accumulator the online gauges use. Returns the
--- count, leftover progress, and next threshold.
+-- Spends whole jittered thresholds out of `progress`, like the online gauges.
+-- Returns the count, leftover progress, and next threshold.
 local function spendProgress(progress, threshold)
 	local count = 0
 	while progress >= threshold do
@@ -22,14 +17,8 @@ local function spendProgress(progress, threshold)
 	return count, progress, threshold
 end
 
--- input = {
---   units = total food units across every source,
---   dirtyItemCount = garden-wide dirty items at close,
---   chickens = { { satiety, poopProgress, poopThreshold, layProgress, layThreshold }, ... },
--- }
--- Returns { hours, fedHours, starvedHours, unitsConsumed, chickens = { {
--- satiety, droppings, poopProgress, poopThreshold, eggs, layProgress,
--- layThreshold }, ... } } in the same order as input.chickens.
+-- input: { units, dirtyItemCount, chickens = { {satiety, poop/lay progress
+-- + thresholds} } }. Returns phase hours, unitsConsumed, per-chicken results.
 function Offline.compute(input, elapsedSeconds)
 	local seconds = math.max(0, math.min(elapsedSeconds, Tuning.OFFLINE_CAP))
 	local hours = seconds / Tuning.HOUR
@@ -109,9 +98,8 @@ function Offline.compute(input, elapsedSeconds)
 		}
 	end
 
-	-- 5. Eggs: two-phase happiness against the absence's average
-	-- cleanliness. Floor eggs laid during the absence suppressing later
-	-- laying is ignored - an accepted approximation.
+	-- 5. Eggs: two-phase happiness against the absence's average cleanliness
+	-- (floor eggs suppressing later laying is ignored).
 	local targetAtReturn = Gauges.cleanlinessTarget(input.dirtyItemCount + totalDroppings)
 	local cleanliness = (targetAtClose + targetAtReturn) / 2
 	local fedRate = Gauges.layRatePerHour(Gauges.happinessFor(Tuning.FED_PLATEAU, cleanliness, false))

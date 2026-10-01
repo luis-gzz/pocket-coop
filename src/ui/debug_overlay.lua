@@ -1,11 +1,10 @@
 local Clock = require("src.systems.clock")
 local Constants = require("src.util.constants")
 local Garden = require("src.systems.garden")
+local WelcomeCard = require("src.ui.welcome_card")
 
--- A small corner button that opens a popover of discrete time-scale
--- presets, plus offline skip buttons that run the real catch-up for a fake
--- absence (ADR-0016), for tuning. Owns no game logic - purely pokes Clock's
--- debug time-scale multiplier and Garden.catchUp.
+-- Corner debug popover: time-scale presets, plus skip buttons that run real
+-- catch-up for a fake absence. Owns no game logic.
 local DebugOverlay = {}
 
 -- All spatial constants below are native * Constants.PIXEL_SCALE, like every
@@ -107,7 +106,10 @@ function DebugOverlay.create()
 		-- Second row: run offline catch-up as if the app had been away this long.
 		for index, hours in ipairs(SKIP_HOURS) do
 			addButton((index - 1) * (BUTTON_WIDTH + BUTTON_GAP), BUTTON_HEIGHT + BUTTON_GAP, "+" .. hours .. "h", function()
-				Garden.catchUp(hours * 3600)
+				hidePopover()
+				if Garden.returnAfter(hours * 3600) then
+					WelcomeCard.show(hours * 3600)
+				end
 			end)
 		end
 

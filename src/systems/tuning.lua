@@ -1,9 +1,5 @@
--- The one set of tuning constants read by both the online simulation
--- (Gauges, Feed, the chicken FSM) and offline catch-up (src/systems/
--- offline.lua), so the two can never drift onto separate numbers
--- (ADR-0016). Rates are authored per sim-hour and converted to per-second
--- here, in one spot; every "seconds" value is sim-seconds (scaled by the
--- Clock's time scale).
+-- Tuning shared by the online sim and offline catch-up (ADR-0016). Rates are
+-- per sim-hour, converted to per-second here; seconds are sim-seconds.
 local Tuning = {}
 
 local HOUR = 3600
@@ -35,8 +31,10 @@ Tuning.FED_PLATEAU = 90
 Tuning.UNFED_FLOOR = 25
 Tuning.UNFED_SETTLE_HOURS = 6 -- a starved phase past this reads as fully settled
 
--- Cleanliness.
+-- Cleanliness eases toward its target with this time constant (closed
+-- form, so it's exact for any dt - a short app switch or an offline gap).
 Tuning.CLEAN_PENALTY_PER_DIRTY_ITEM = 5
+Tuning.CLEAN_EASE_RATE = 1 / (30 * 60) -- per second: ~63% of the gap per 15 min
 
 -- Happiness: satiety at or above this counts as fully fed.
 Tuning.HAPPINESS_SATIETY_KNEE = 85
@@ -56,8 +54,10 @@ Tuning.LAY_MIN_GAP = HOUR
 -- doesn't feel clockwork; offline uses the average (1).
 Tuning.THRESHOLD_JITTER = { min = 0.8, max = 1.2 }
 
--- Offline catch-up.
+-- Offline catch-up. Shorter absences than the threshold just run the
+-- normal update path with one big dt instead of a full pass.
 Tuning.OFFLINE_CAP = 24 * HOUR
+Tuning.OFFLINE_THRESHOLD = 10 * 60
 
 function Tuning.randomIn(range)
 	return range.min + math.random() * (range.max - range.min)

@@ -101,9 +101,8 @@ local function removeItem(item)
 	end
 end
 
--- Debits a source's remaining capacity (in food units) by the satiety
--- actually delivered, converted at SATIETY_PER_UNIT. Returns false once
--- fully depleted and removed.
+-- Debits a source by the satiety delivered, converted to food units. Returns
+-- false once fully depleted and removed.
 function Feed.deplete(item, satietyDelivered)
 	if item.removed then
 		return false
@@ -177,10 +176,8 @@ function Feed.getTotalUnits()
 	return total
 end
 
--- Drains `units` from food sources oldest-first (offline has no positions
--- to pick a nearest one by), removing any that empty. Items stay in
--- placement order, so list order is age order. Doesn't save - catch-up
--- saves once at the end.
+-- Drains `units` oldest-first (list order is placement order), removing any
+-- that empty. Doesn't save - catch-up saves once at the end.
 function Feed.drainOldest(units)
 	local index = 1
 	while units > 0 and index <= #items do
@@ -201,21 +198,6 @@ function Feed.drainOldest(units)
 			index = index + 1
 		end
 	end
-end
-
--- Removes every treat and returns their records, for offline catch-up to
--- feed to whichever chicken would have reached each first. Callers must
--- release any claims beforehand. Doesn't save.
-function Feed.takeTreats()
-	local taken = {}
-	for index = #items, 1, -1 do
-		local item = items[index]
-		if item.kind == "treat" then
-			table.insert(taken, 1, item)
-			removeItem(item)
-		end
-	end
-	return taken
 end
 
 -- Frees a treat's claim without consuming it.

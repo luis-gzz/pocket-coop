@@ -63,7 +63,7 @@ _Avoid_: Meal (a meal is ambiguous between one bout and the whole cycle)
 The satiety level (re-picked each hunger cycle, always under the forage ceiling of 50) at which a foraging chicken stops eating and its hunger cycle ends.
 
 **Cleanliness**:
-The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it over time, rather than being restored directly by the act of cleaning.
+The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it gradually — mostly within a quarter hour, fully within the hour — rather than being restored directly by the act of cleaning. Time away recovers it the same way, so cleaning up and coming straight back doesn't return a spotless chicken.
 
 **Happiness**:
 A chicken's overall well-being, computed on read from satiety, cleanliness, and any active happiness buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
@@ -185,8 +185,15 @@ The single shared owner of every placed food item, and the one place a hungry ch
 ## Time away
 
 **Offline catch-up**:
-Bringing the garden up to date for the time the app was closed or in the background, run on launch and every return. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food lasting, then food gone) instead of replaying every moment. Time away counts for at most a day.
+Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food lasting, then food gone) instead of replaying every moment. Time away counts for at most a day. Treats are never eaten during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
 _Avoid_: Offline simulation, replay (it deliberately doesn't step through time)
+
+**Offline threshold**:
+How long the player must be away (ten minutes) before a return counts as time away. A shorter absence — a quick app switch — simply continues the game as if it had never paused: no catch-up, no welcome-back card, and the chicken stays where it was.
+
+**Welcome-back card**:
+The message shown after every offline catch-up, telling the player how long they were really away (not capped at a day). Dismissed with its OK button or a tap anywhere else; the game keeps running behind it.
+_Avoid_: Welcome screen, offline report (it reports only the time away, not what happened)
 
 **Fed plateau**:
 The satiety a chicken with food available averages over its hunger cycles. Offline catch-up holds a fed chicken there while food lasts. Its counterpart for an unfed chicken is the **unfed floor**, where foraging settles.

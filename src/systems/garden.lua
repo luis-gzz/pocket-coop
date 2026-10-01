@@ -333,19 +333,12 @@ function Garden.tryPlace(itemType, x, y)
 	return Feed.tryPlace(itemType, x, y)
 end
 
-local function onFrame(event)
-	if not lastFrameTime then
-		lastFrameTime = event.time
-		return
-	end
-	local rawDt = (event.time - lastFrameTime) / 1000
-	lastFrameTime = event.time
-
-	Clock.advance(rawDt)
+-- Steps every chicken through the normal update path and collects its
+-- droppings/lays. Used per frame and for a short absence (one big dt).
+local function stepChickens(dt)
 	local dirtyItemCount = Garden.getDirtyItemCount()
-
 	for _, chicken in ipairs(chickens) do
-		local spawned, laid = chicken:update(Clock.getDt(), dirtyItemCount, Feed.hasFoodSource())
+		local spawned, laid = chicken:update(dt, dirtyItemCount, Feed.hasFoodSource())
 		for _, record in ipairs(spawned) do
 			Garden.addDropping(record)
 		end
@@ -355,36 +348,28 @@ local function onFrame(event)
 	end
 end
 
--- Brings the garden up to date after `elapsedSeconds` away (app closed,
--- backgrounded, or a debug skip) in closed form - see src/systems/
--- offline.lua and ADR-0016. Follows the plan's order of operations: expire
--- timestamp buffs, then food + satiety, droppings, eggs, and finally
--- cleanliness; then saves.
-function Garden.catchUp(elapsedSeconds)
-	elapsedSeconds = math.max(0, math.min(elapsedSeconds or 0, Tuning.OFFLINE_CAP))
-	if elapsedSeconds <= 0 or #chickens == 0 then
-		Garden.save()
+local function onFrame(event)
+	if not lastFrameTime then
+		lastFrameTime = event.time
 		return
 	end
+	local rawDt = (event.time - lastFrameTime) / 1000
+	lastFrameTime = event.time
 
-	-- Whatever each chicken was mid-way through no longer applies; this also
-	-- releases any treat claims before the treats are taken below.
+	Clock.advance(rawDt)
+	stepChickens(Clock.getDt())
+end
+
+-- Full offline catch-up (ADR-0016): food + satiety, droppings, eggs, then
+-- cleanliness, then save. Treats are left out for the live chicken.
+local function catchUp(elapsedSeconds)
+	elapsedSeconds = math.min(elapsedSeconds, Tuning.OFFLINE_CAP)
+
+	-- Whatever each chicken was mid-way through no longer applies, and it
+	-- reappears somewhere new, as if it had been wandering meanwhile.
 	for _, chicken in ipairs(chickens) do
 		chicken:resetForCatchUp()
-	end
-
-	-- A treat left out is eaten first, by the hungriest chicken, before the
-	-- refill phase. Its happiness buff is granted at the start of the
-	-- absence and expires with it.
-	for _, treat in ipairs(Feed.takeTreats()) do
-		local hungriest = chickens[1]
-		for _, chicken in ipairs(chickens) do
-			if chicken.gauges.satiety < hungriest.gauges.satiety then
-				hungriest = chicken
-			end
-		end
-		hungriest.gauges:applyTreat(treat.fullness)
-		hungriest.gauges:applyHappinessBuff()
+		chicken:teleportTo(Chicken.randomSpot())
 	end
 
 	local input = { units = Feed.getTotalUnits(), dirtyItemCount = Garden.getDirtyItemCount(), chickens = {} }
@@ -397,6 +382,11 @@ function Garden.catchUp(elapsedSeconds)
 			layProgress = gauges.layProgress,
 			layThreshold = gauges.layThreshold,
 		}
+	end
+
+	local cleanlinessAtClose = {}
+	for i, chicken in ipairs(chickens) do
+		cleanlinessAtClose[i] = chicken.gauges.cleanliness
 	end
 
 	local result = Offline.compute(input, elapsedSeconds)
@@ -435,21 +425,39 @@ function Garden.catchUp(elapsedSeconds)
 		end
 	end
 
-	-- Over a multi-hour absence the ease toward the target has converged.
-	local cleanliness = Gauges.cleanlinessTarget(Garden.getDirtyItemCount())
-	for _, chicken in ipairs(chickens) do
-		chicken.gauges.cleanliness = cleanliness
+	-- Same easing as online over the whole gap, toward the target at return
+	-- (slightly pessimistic if droppings piled up mid-absence).
+	local target = Gauges.cleanlinessTarget(Garden.getDirtyItemCount())
+	for i, chicken in ipairs(chickens) do
+		chicken.gauges.cleanliness = Gauges.easeCleanliness(cleanlinessAtClose[i], target, elapsedSeconds)
 	end
 
 	Garden.save()
 end
 
--- Catches up for however long the app was away since the last save (or 0
--- if the clock moved backwards) - on launch and on every resume.
-function Garden.catchUpToNow()
-	if lastUpdate then
-		Garden.catchUp(os.time() - lastUpdate)
+-- Entry point for time away (launch, resume, debug skips). Under the offline
+-- threshold it's one big normal step; returns true if a full pass ran.
+function Garden.returnAfter(elapsedSeconds)
+	elapsedSeconds = math.max(0, elapsedSeconds or 0) -- a clock moved backwards counts as no time
+	if elapsedSeconds < Tuning.OFFLINE_THRESHOLD or #chickens == 0 then
+		if elapsedSeconds > 0 then
+			stepChickens(elapsedSeconds)
+		end
+		Garden.save()
+		return false
 	end
+	catchUp(elapsedSeconds)
+	return true
+end
+
+-- returnAfter for the time since the last save. Returns whether a full pass
+-- ran and the real (uncapped) time away.
+function Garden.returnToNow()
+	if not lastUpdate then
+		return false, 0
+	end
+	local elapsed = os.time() - lastUpdate
+	return Garden.returnAfter(elapsed), elapsed
 end
 
 function Garden.getSaveData()
@@ -533,8 +541,6 @@ function Garden.load(saved)
 		pickLayTarget = Garden.pickLayTarget,
 		commitLay = Garden.commitLay,
 	}))
-
-	Garden.catchUpToNow()
 
 	Runtime:addEventListener("enterFrame", onFrame)
 end
