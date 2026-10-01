@@ -24,6 +24,7 @@ local Hud = require("src.ui.hud")
 local Toolbar = require("src.ui.toolbar")
 local Save = require("src.systems.save")
 local DebugOverlay = require("src.ui.debug_overlay")
+local WelcomeCard = require("src.ui.welcome_card")
 
 local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
@@ -52,10 +53,24 @@ if DEBUG_MODE then
 	DebugOverlay.create()
 end
 
+-- Catches up for time away and shows the welcome-back card after a full
+-- pass. Runs after the UI exists so the card can show on launch.
+local function returnToNow()
+	local didFullPass, elapsed = Garden.returnToNow()
+	if didFullPass then
+		WelcomeCard.show(elapsed)
+	end
+end
+returnToNow()
+
 timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 
+-- Saving on the way out stamps the save's lastUpdate; coming back returns
+-- the garden to now.
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
 		Garden.save()
+	elseif event.type == "applicationResume" then
+		returnToNow()
 	end
 end)

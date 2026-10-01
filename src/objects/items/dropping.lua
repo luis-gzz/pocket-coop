@@ -11,6 +11,8 @@ local IMAGE_PATH = "assets/fauna/dung.png"
 local NATIVE_WIDTH, NATIVE_HEIGHT = 8, 6
 local WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 local HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
+Dropping.WIDTH = WIDTH
+Dropping.HEIGHT = HEIGHT
 
 -- record: the {x, y, createdAt} table Garden owns. onClean(dropping) is
 -- called when tapped, so the caller (Garden) can remove it from its own

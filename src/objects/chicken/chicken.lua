@@ -3,6 +3,8 @@ local Constants = require("src.util.constants")
 local Island = require("src.systems.island")
 local YSort = require("src.systems.y_sort")
 local Gauges = require("src.objects.chicken.gauges")
+local Clock = require("src.systems.clock")
+local Tuning = require("src.systems.tuning")
 local Feed = require("src.systems.feed")
 local Tooltip = require("src.ui.tooltip")
 local Wiggle = require("src.util.wiggle")
@@ -33,8 +35,8 @@ local SELECTED_PATH = "assets/fauna/CHICKEN/chickeSelected.png"
 local HEART_PATH = "assets/fauna/heart.png"
 local HEART_ICON_SIZE = 9 * DISPLAY_SCALE
 
-local IDLE_DWELL = { min = 2, max = 4 } -- seconds
-local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not forced to eat
+local IDLE_DWELL = { min = 2, max = 4 } -- sim-seconds
+local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not eating
 local WANDER_MIN_RADIUS = 20
 local WANDER_MAX_RADIUS = 60
 local WANDER_SPEED = 40 -- points per second
@@ -49,13 +51,9 @@ local WIGGLE_STEP_TIME = 90
 local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
 
 -- How long a chicken plays the eat animation after finishing a mealworm.
-local TREAT_EAT_DURATION = 2000 -- ms
+local TREAT_EAT_DURATION = 2 -- sim-seconds
 
 local STATES -- assigned near the bottom, after the methods it calls exist
-
-local function randomDwell(range)
-	return math.random(range.min * 1000, range.max * 1000)
-end
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
@@ -98,18 +96,30 @@ local function pickEatingSpot(target)
 	return x, y
 end
 
--- Whether to eat at all is a chance roll (gauges.lua's rollWantsToEat)
--- against the food ceiling if a source exists, the forage ceiling otherwise.
-local function decideNextState(chicken)
-	local hasSource = Feed.hasFoodSource()
-	local ceiling = hasSource and Gauges.FOOD_CEILING or Gauges.FORAGE_CEILING
-	if chicken.gauges:rollWantsToEat(ceiling) then
-		local target = hasSource and Feed.findNearestSource(chicken.view.x, chicken.view.y) or nil
-		chicken:setFoodTarget(target)
+-- Where a hungry chicken goes next (ADR-0015): "approach" (food cycle),
+-- "eat" (forage cycle), or nil if not hungry, on a bout break, or food vanished.
+local function pickHungerState(chicken)
+	if chicken.onBoutBreak then
+		return nil
+	end
+	local mode = chicken.gauges:getHungerMode()
+	if mode == "food" then
+		local target = Feed.findNearestSource(chicken.view.x, chicken.view.y)
 		if target then
+			chicken:setFoodTarget(target)
 			return "approach"
 		end
-		return "eat" -- nothing placed (or it vanished a moment ago) - forage in place
+	elseif mode == "forage" then
+		chicken:setFoodTarget(nil)
+		return "eat"
+	end
+	return nil
+end
+
+local function decideNextState(chicken)
+	local hungerState = pickHungerState(chicken)
+	if hungerState then
+		return hungerState
 	end
 
 	chicken:setFoodTarget(nil)
@@ -119,11 +129,21 @@ local function decideNextState(chicken)
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
 end
 
+-- Ends a bout of eating. A food cycle that isn't finished yet (satiety still
+-- short of 100) takes a short sim-time break before the next bout.
+local function finishBout(chicken)
+	chicken:setFoodTarget(nil)
+	if chicken.gauges:isHungry() then
+		chicken:startBoutBreak()
+	end
+	chicken.machine:changeState(decideNextState(chicken))
+end
+
 -- Applies the treat's payoff and removes it immediately; the chicken still
 -- lingers in "eatTreat" afterward to play the eat animation.
 local function consumeTreat(chicken)
 	local target = chicken.foodTarget
-	chicken.gauges:applyTreatSatiety()
+	chicken.gauges:applyTreat(target.fullness)
 	chicken.gauges:applyHappinessBuff()
 	Feed.consumeTreat(target)
 	chicken:setFoodTarget(nil)
@@ -236,7 +256,7 @@ function Chicken:setSelected(value)
 	end
 end
 
--- Abandons an in-progress walk to lay, freeing the lay clock to roll again
+-- Abandons an in-progress walk to lay, letting lay progress fire again
 -- (ADR-0013) - called wherever a food target is also abandoned, since an
 -- interrupted walk means the hen never actually reached its target. Without
 -- this, gauges.pendingLay would stay set forever and the hen could never lay
@@ -261,6 +281,33 @@ function Chicken:beginNesting(target)
 	self.machine:changeState("nest")
 end
 
+function Chicken:startBoutBreak()
+	self:cancelBoutBreak()
+	self.onBoutBreak = true
+	self.boutBreakHandle = Clock.after(Tuning.randomIn(Tuning.BOUT_BREAK), function()
+		self.boutBreakHandle = nil
+		self.onBoutBreak = false
+	end)
+end
+
+function Chicken:cancelBoutBreak()
+	Clock.cancel(self.boutBreakHandle)
+	self.boutBreakHandle = nil
+	self.onBoutBreak = false
+end
+
+-- Drops whatever the chicken was doing before offline catch-up (ADR-0016).
+-- Lay progress is kept, so a pending egg is counted by catch-up instead.
+function Chicken:resetForCatchUp()
+	self:setFoodTarget(nil)
+	self:cancelNesting()
+	self:cancelBoutBreak()
+	self.gauges:resetHunger()
+	if self.machine.name ~= "held" then
+		self.machine:changeState("idle")
+	end
+end
+
 -- Releases a superseded treat's claim before adopting a new target.
 function Chicken:setFoodTarget(newTarget)
 	local old = self.foodTarget
@@ -282,6 +329,21 @@ function Chicken:getPosition()
 	return self.view.x, self.view.y
 end
 
+-- A random point within the chicken's movement bounds, where it reappears
+-- after offline catch-up.
+function Chicken.randomSpot()
+	local bounds = getBounds()
+	return bounds.minX + math.random() * (bounds.maxX - bounds.minX),
+		bounds.minY + math.random() * (bounds.maxY - bounds.minY)
+end
+
+-- Moves the chicken instantly, hit target included. Callers stop any walk
+-- first (resetForCatchUp does).
+function Chicken:teleportTo(x, y)
+	self.view.x, self.view.y = x, y
+	self.hitArea.x, self.hitArea.y = x, y
+end
+
 -- Driven every frame by garden.lua's own frame loop (not a private listener
 -- here - see garden.lua for why): drives the gauges, debits any food source
 -- being eaten from, and checks for a nearby treat alert. dt is already
@@ -289,20 +351,39 @@ end
 -- floor egg count. Returns any newly spawned dropping records and whether a
 -- lay happened this call, so Garden can create their views / hatch the egg -
 -- both are Garden-owned concerns now, not this chicken's.
-function Chicken:update(dt, dirtyItemCount)
+function Chicken:update(dt, dirtyItemCount, hasSource)
 	-- Keeps the hit target glued to the chicken and always frontmost.
 	self.hitArea.x = self.view.x
 	self.hitArea.y = self.view.y
 	self.hitArea:toFront()
 
 	local isHeld = self.machine.name == "held"
-	local spawned, laid, delivered = self.gauges:update(dt, dirtyItemCount, self.view.x, self.view.y, isHeld)
+	local spawned, laid, delivered, boutDone = self.gauges:update(
+		dt, dirtyItemCount, self.view.x, self.view.y, isHeld, hasSource
+	)
 
 	-- Debits the food source by the satiety actually delivered this frame.
 	if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
 		if not Feed.deplete(self.foodTarget, delivered) then
 			self:setFoodTarget(nil)
 			self.machine:changeState(decideNextState(self))
+		end
+	end
+
+	if self.machine.name == "eat" and boutDone then
+		finishBout(self)
+	end
+
+	-- Hunger is acted on here, not at the next re-decide, so high time scale
+	-- can't overshoot it. Interrupts idle/wander, or foraging once food appears.
+	local state = self.machine.name
+	local isForaging = state == "eat" and not self.foodTarget
+	local interruptible = state == "idle" or state == "wander"
+		or (isForaging and self.gauges:getHungerMode() == "food")
+	if interruptible and not self.selected then
+		local hungerState = pickHungerState(self)
+		if hungerState then
+			self.machine:changeState(hungerState)
 		end
 	end
 
@@ -435,15 +516,14 @@ STATES = {
 	idle = {
 		enter = function(chicken)
 			chicken:setAnimation("idle")
-			chicken.timerHandle = timer.performWithDelay(randomDwell(IDLE_DWELL), function()
+			chicken.timerHandle = Clock.after(Tuning.randomIn(IDLE_DWELL), function()
+				chicken.timerHandle = nil
 				chicken.machine:changeState(decideNextState(chicken))
 			end)
 		end,
 		exit = function(chicken)
-			if chicken.timerHandle then
-				timer.cancel(chicken.timerHandle)
-				chicken.timerHandle = nil
-			end
+			Clock.cancel(chicken.timerHandle)
+			chicken.timerHandle = nil
 		end,
 	},
 
@@ -562,26 +642,15 @@ STATES = {
 		end,
 	},
 
-	-- Eating in place, from a claimed source or foraging with no target.
-	-- Rolls about once a second for whether to stop.
+	-- One bout of eating, from a claimed source or foraging. Ends at the
+	-- bout's target (finishBout) or when preempted or the source runs out.
 	eat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
-			local ceiling = chicken.foodTarget and Gauges.FOOD_CEILING or Gauges.FORAGE_CEILING
-			chicken.gauges:setEating(true, ceiling)
-			chicken.eatStopTimerHandle = timer.performWithDelay(1000, function()
-				if chicken.gauges:rollShouldStopEating() then
-					chicken:setFoodTarget(nil)
-					chicken.machine:changeState(decideNextState(chicken))
-				end
-			end, 0)
+			chicken.gauges:startBout(chicken.foodTarget ~= nil)
 		end,
 		exit = function(chicken)
-			chicken.gauges:setEating(false)
-			if chicken.eatStopTimerHandle then
-				timer.cancel(chicken.eatStopTimerHandle)
-				chicken.eatStopTimerHandle = nil
-			end
+			chicken.gauges:stopEating()
 		end,
 	},
 
@@ -589,15 +658,14 @@ STATES = {
 	eatTreat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
-			chicken.eatTreatTimerHandle = timer.performWithDelay(TREAT_EAT_DURATION, function()
+			chicken.eatTreatTimerHandle = Clock.after(TREAT_EAT_DURATION, function()
+				chicken.eatTreatTimerHandle = nil
 				chicken.machine:changeState(decideNextState(chicken))
 			end)
 		end,
 		exit = function(chicken)
-			if chicken.eatTreatTimerHandle then
-				timer.cancel(chicken.eatTreatTimerHandle)
-				chicken.eatTreatTimerHandle = nil
-			end
+			Clock.cancel(chicken.eatTreatTimerHandle)
+			chicken.eatTreatTimerHandle = nil
 		end,
 	},
 

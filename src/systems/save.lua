@@ -1,7 +1,7 @@
 local json = require("json")
 
--- Plain JSON file persistence (ADR-0003): no offline catchup math, values
--- just resume exactly as saved next launch.
+-- Plain JSON file persistence (ADR-0003), including a wall-clock lastUpdate
+-- for offline catch-up (ADR-0016).
 local Save = {}
 
 local FILE_NAME = "chicken_save.json"
