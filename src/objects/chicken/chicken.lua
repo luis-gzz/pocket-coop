@@ -347,11 +347,11 @@ end
 -- Driven every frame by garden.lua's own frame loop (not a private listener
 -- here - see garden.lua for why): drives the gauges, debits any food source
 -- being eaten from, and checks for a nearby treat alert. dt is already
--- time-scaled (from Clock); dirtyItemCount is the garden-wide dropping +
--- floor egg count. Returns any newly spawned dropping records and whether a
+-- time-scaled (from Clock); dirt is the garden-wide dropping + floor egg
+-- penalty. Returns any newly spawned dropping records and whether a
 -- lay happened this call, so Garden can create their views / hatch the egg -
 -- both are Garden-owned concerns now, not this chicken's.
-function Chicken:update(dt, dirtyItemCount, hasSource)
+function Chicken:update(dt, dirt, hasSource)
 	-- Keeps the hit target glued to the chicken and always frontmost.
 	self.hitArea.x = self.view.x
 	self.hitArea.y = self.view.y
@@ -359,7 +359,7 @@ function Chicken:update(dt, dirtyItemCount, hasSource)
 
 	local isHeld = self.machine.name == "held"
 	local spawned, laid, delivered, boutDone = self.gauges:update(
-		dt, dirtyItemCount, self.view.x, self.view.y, isHeld, hasSource
+		dt, dirt, self.view.x, self.view.y, isHeld, hasSource
 	)
 
 	-- Debits the food source by the satiety actually delivered this frame.

@@ -17,7 +17,7 @@ local function spendProgress(progress, threshold)
 	return count, progress, threshold
 end
 
--- input: { units, dirtyItemCount, chickens = { {satiety, poop/lay progress
+-- input: { units, dirt, chickens = { {satiety, poop/lay progress
 -- + thresholds} } }. Returns phase hours, unitsConsumed, per-chicken results.
 function Offline.compute(input, elapsedSeconds)
 	local seconds = math.max(0, math.min(elapsedSeconds, Tuning.OFFLINE_CAP))
@@ -65,7 +65,7 @@ function Offline.compute(input, elapsedSeconds)
 	-- the unfed floor (a chicken already below it forages back up to it).
 	local starvedHours = hours - fedHours
 
-	local targetAtClose = Gauges.cleanlinessTarget(input.dirtyItemCount)
+	local targetAtClose = Gauges.cleanlinessTarget(input.dirt)
 	local results = {}
 	local totalDroppings = 0
 	for i, chicken in ipairs(input.chickens) do
@@ -103,7 +103,7 @@ function Offline.compute(input, elapsedSeconds)
 
 	-- 5. Eggs: two-phase happiness against the absence's average cleanliness
 	-- (floor eggs suppressing later laying is ignored).
-	local targetAtReturn = Gauges.cleanlinessTarget(input.dirtyItemCount + totalDroppings)
+	local targetAtReturn = Gauges.cleanlinessTarget(input.dirt + totalDroppings * Tuning.CLEAN_PENALTY_PER_DROPPING)
 	local cleanliness = (targetAtClose + targetAtReturn) / 2
 	local fedRate = Gauges.layRatePerHour(Gauges.happinessFor(Tuning.FED_PLATEAU, cleanliness, false))
 	local maxEggs = math.floor(hours * Tuning.HOUR / Tuning.LAY_MIN_GAP)

@@ -172,11 +172,11 @@ function Garden.getCollectedCount()
 	return collectedCount
 end
 
--- The garden-wide dirty-item count every chicken's cleanliness gauge eases
--- toward (CONTEXT.md's Cleanliness, extended so a dropping counts against
--- every chicken sharing the garden, not just the one that made it).
-function Garden.getDirtyItemCount()
-	return #droppings + getFloorEggCount()
+-- The garden-wide dirt every chicken's cleanliness eases toward (CONTEXT.md's
+-- Cleanliness, extended so a dropping counts against every chicken sharing
+-- the garden, not just the one that made it).
+function Garden.getDirt()
+	return #droppings * Tuning.CLEAN_PENALTY_PER_DROPPING + getFloorEggCount() * Tuning.CLEAN_PENALTY_PER_FLOOR_EGG
 end
 
 local function insertDropping(record)
@@ -336,9 +336,9 @@ end
 -- Steps every chicken through the normal update path and collects its
 -- droppings/lays. Used per frame and for a short absence (one big dt).
 local function stepChickens(dt)
-	local dirtyItemCount = Garden.getDirtyItemCount()
+	local dirt = Garden.getDirt()
 	for _, chicken in ipairs(chickens) do
-		local spawned, laid = chicken:update(dt, dirtyItemCount, Feed.hasFoodSource())
+		local spawned, laid = chicken:update(dt, dirt, Feed.hasFoodSource())
 		for _, record in ipairs(spawned) do
 			Garden.addDropping(record)
 		end
@@ -372,7 +372,7 @@ local function catchUp(elapsedSeconds)
 		chicken:teleportTo(Chicken.randomSpot())
 	end
 
-	local input = { units = Feed.getTotalUnits(), dirtyItemCount = Garden.getDirtyItemCount(), chickens = {} }
+	local input = { units = Feed.getTotalUnits(), dirt = Garden.getDirt(), chickens = {} }
 	for i, chicken in ipairs(chickens) do
 		local gauges = chicken.gauges
 		input.chickens[i] = {
@@ -427,7 +427,7 @@ local function catchUp(elapsedSeconds)
 
 	-- Same easing as online over the whole gap, toward the target at return
 	-- (slightly pessimistic if droppings piled up mid-absence).
-	local target = Gauges.cleanlinessTarget(Garden.getDirtyItemCount())
+	local target = Gauges.cleanlinessTarget(Garden.getDirt())
 	for i, chicken in ipairs(chickens) do
 		chicken.gauges.cleanliness = Gauges.easeCleanliness(cleanlinessAtClose[i], target, elapsedSeconds)
 	end

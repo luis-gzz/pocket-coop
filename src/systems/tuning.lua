@@ -33,14 +33,15 @@ Tuning.UNFED_SETTLE_HOURS = 6 -- a starved phase past this reads as fully settle
 
 -- Cleanliness eases toward its target with this time constant (closed
 -- form, so it's exact for any dt - a short app switch or an offline gap).
-Tuning.CLEAN_PENALTY_PER_DIRTY_ITEM = 5
+Tuning.CLEAN_PENALTY_PER_DROPPING = 10
+Tuning.CLEAN_PENALTY_PER_FLOOR_EGG = 5
 Tuning.CLEAN_EASE_RATE = 1 / (30 * 60) -- per second: ~63% of the gap per 30 min
 
 -- Happiness: satiety at or above this counts as fully fed.
 Tuning.HAPPINESS_SATIETY_KNEE = 85
 
 -- Droppings.
-Tuning.POOP_PER_HOUR = 1
+Tuning.POOP_PER_HOUR = 0.5 -- one every ~2 h
 Tuning.POOP_RATE = Tuning.POOP_PER_HOUR / HOUR
 
 -- Egg laying.

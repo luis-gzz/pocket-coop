@@ -74,7 +74,7 @@ An individual mess a chicken leaves on the island, spawned when its poop progres
 _Avoid_: Poop, mess (dropping is the canonical term; use it consistently even though "poop progress" keeps the informal word for the gauge's name)
 
 **Poop progress**:
-A chicken's steady, FSM-independent progress toward its next dropping, filling at the same average rate (about one per hour) whether the chicken is fed or not. Each dropping needs a slightly different, randomly picked amount of progress so they don't arrive like clockwork; leftover progress carries over, including across time away.
+A chicken's steady, FSM-independent progress toward its next dropping, filling at the same average rate (about one every two hours) whether the chicken is fed or not. Each dropping needs a slightly different, randomly picked amount of progress so they don't arrive like clockwork; leftover progress carries over, including across time away.
 _Avoid_: Poop clock (retired — there is no longer a recurring roll)
 
 **Lay progress**:
@@ -117,7 +117,7 @@ _Avoid_: Nest slot, spot
 A collectable world object produced when a hen's lay progress completes. Sits either in a hen bed's egg slot (tidy — doesn't affect cleanliness) or on the ground as a floor egg. Tapping either kind collects it: increments the egg counter, removes the egg, and frees its slot if it had one.
 
 **Floor egg**:
-An egg that landed outside any hen bed's slots. Lands near the nearest bed if any bed exists on the island (every one of them full), or wherever the hen happens to be if no bed exists at all. Counted toward the cleanliness target as a dirty item, weighted the same as a dropping — collecting it removes that penalty automatically.
+An egg that landed outside any hen bed's slots. Lands near the nearest bed if any bed exists on the island (every one of them full), or wherever the hen happens to be if no bed exists at all. Counted toward the cleanliness target as a dirty item, but only half as dirty as a dropping — collecting it removes that penalty automatically.
 _Avoid_: Loose egg, ground egg
 
 **Nest**:

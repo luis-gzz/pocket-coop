@@ -26,9 +26,10 @@ local function clamp100(value)
 	return clamp(value, 0, 100)
 end
 
--- The cleanliness a given garden-wide dirty-item count eases toward.
-function Gauges.cleanlinessTarget(dirtyItemCount)
-	return clamp100(100 - dirtyItemCount * Tuning.CLEAN_PENALTY_PER_DIRTY_ITEM)
+-- The cleanliness a given garden-wide dirt (summed dirty-item penalties)
+-- eases toward.
+function Gauges.cleanlinessTarget(dirt)
+	return clamp100(100 - dirt)
 end
 
 -- Eases cleanliness toward `target` over dt (ADR-0004). Closed form, so one
@@ -172,7 +173,7 @@ end
 
 -- Advances by dt (time-scaled). Returns spawned droppings, whether a lay
 -- fired (never while held), satiety delivered, and whether the bout finished.
-function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld, hasSource)
+function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource)
 	self.now = self.now + dt
 
 	local satietyBefore = self.satiety
@@ -200,7 +201,7 @@ function Gauges:update(dt, dirtyItemCount, chickenX, chickenY, isHeld, hasSource
 		endHungerCycle(self)
 	end
 
-	self.cleanliness = Gauges.easeCleanliness(self.cleanliness, Gauges.cleanlinessTarget(dirtyItemCount), dt)
+	self.cleanliness = Gauges.easeCleanliness(self.cleanliness, Gauges.cleanlinessTarget(dirt), dt)
 
 	local spawned = {}
 	self.poopProgress = self.poopProgress + Tuning.POOP_RATE * dt
