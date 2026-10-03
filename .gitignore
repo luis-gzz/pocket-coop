@@ -3,3 +3,6 @@ build/
 *.apk
 *.ipa
 *.aab
+
+# Local design/reference docs, not tracked
+reference_docs/

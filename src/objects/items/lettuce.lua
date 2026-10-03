@@ -15,7 +15,7 @@ local MIN_SCALE = 0.4
 
 Lettuce.WIDTH = NATIVE_SIZE * Constants.PIXEL_SCALE
 Lettuce.HEIGHT = Lettuce.WIDTH
-Lettuce.CAPACITY = 200
+Lettuce.CAPACITY = 200 -- food units (src/systems/tuning.lua): ~2 fed-chicken-hours
 Lettuce.DESCRIPTOR = { icon = IMAGE_PATH, width = Lettuce.WIDTH, height = Lettuce.HEIGHT, type = "lettuce" }
 
 -- item: { kind="source", type="lettuce", x, y, width, height, capacity,

@@ -42,32 +42,51 @@ The state a chicken is in while the player is dragging it. Entered by touch inpu
 The feedback animation a chicken plays continuously for as long as it's held. Stops and settles flat the moment it's released.
 
 **Satiety**:
-The gauge tracking how fed a chicken is (0–100, 100 is full). Falls while idle or wandering, rises while eating. Displayed to the player as "Fullness."
+The gauge tracking how fed a chicken is (0–100, 100 is full). Falls steadily over real hours while the chicken isn't eating (more slowly while satisfied), rises while eating. Displayed to the player as "Fullness."
 _Avoid_: Hunger (inverted sense — high hunger would mean *unfed*, which is the opposite convention every gauge in this game uses)
 
+**Satisfied**:
+A short spell after a chicken's satiety reaches 100 during which it falls much more slowly. It never stops the chicken eating — it only slows how fast it gets hungry again. Granted by any meal or treat that tops satiety off.
+_Avoid_: Satisfied buff as a mood effect (it has no effect on happiness), full
+
+**Hunger trigger**:
+The satiety level below which a chicken starts a hunger cycle. It has one for each way of eating — a higher one used while any food source exists, a much lower one while only foraging is possible — and both are re-picked at random each time a hunger cycle ends, so a chicken doesn't get hungry at the same number every time. Which one applies follows whether food exists *right now*, so placing food draws a moderately hungry chicken at once.
+
+**Hunger cycle**:
+The stretch from a chicken crossing its hunger trigger until it is done eating: until satiety reaches 100 when eating from a food source, or until it reaches the forage stop when foraging. Made up of one or more bouts.
+
+**Bout**:
+One sitting of eating from a food source: it closes half the gap between satiety and 100, or all of it once that gap is small. Bouts within a hunger cycle are separated by a short break of wandering or idling.
+_Avoid_: Meal (a meal is ambiguous between one bout and the whole cycle)
+
+**Forage stop**:
+The satiety level (re-picked each hunger cycle, always under the forage ceiling of 50) at which a foraging chicken stops eating and its hunger cycle ends.
+
 **Cleanliness**:
-The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it over time, rather than being restored directly by the act of cleaning.
+The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it gradually — mostly within a quarter hour, fully within the hour — rather than being restored directly by the act of cleaning. Time away recovers it the same way, so cleaning up and coming straight back doesn't return a spotless chicken.
 
 **Happiness**:
 A chicken's overall well-being, computed on read from satiety, cleanliness, and any active happiness buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
 _Avoid_: Mood, wellbeing
 
 **Dropping**:
-An individual mess a chicken leaves on the island, spawned by the poop clock. Persists as its own object until tapped away. Belongs to the garden, not the chicken that made it — every chicken's cleanliness counts every dropping on the island, not just its own (see ADR-0012).
-_Avoid_: Poop, mess (dropping is the canonical term; use it consistently even though "poop clock" keeps the informal word for the timer's name)
+An individual mess a chicken leaves on the island, spawned when its poop progress completes. Persists as its own object until tapped away. Belongs to the garden, not the chicken that made it — every chicken's cleanliness counts every dropping on the island, not just its own (see ADR-0012).
+_Avoid_: Poop, mess (dropping is the canonical term; use it consistently even though "poop progress" keeps the informal word for the gauge's name)
 
-**Poop clock**:
-The recurring, FSM-independent timer that rolls a chance each cycle to spawn a new dropping. Odds increase the longer it's been since the last successful roll, and after the chicken has eaten recently.
+**Poop progress**:
+A chicken's steady, FSM-independent progress toward its next dropping, filling at the same average rate (about one every two hours) whether the chicken is fed or not. Each dropping needs a slightly different, randomly picked amount of progress so they don't arrive like clockwork; leftover progress carries over, including across time away.
+_Avoid_: Poop clock (retired — there is no longer a recurring roll)
 
-**Lay clock**:
-The recurring, FSM-independent timer that rolls a chance each cycle for a hen to lay an egg, mirroring the poop clock's shape exactly. Gated by a minimum happiness and a refractory period since the hen's last lay; stores that last lay as a timestamp, not a countdown, the same way the poop clock's own timing state works. Firing sends the hen into the nest state to walk to its target before laying — the refractory timestamp itself is set only once the egg actually lands, not when the clock fires (see ADR-0013).
+**Lay progress**:
+A hen's steady, FSM-independent progress toward her next egg, filling faster the happier she is and not at all below a minimum happiness. Like poop progress, each egg needs a slightly different amount and leftover progress carries over. A hen can't lay again until a minimum gap has passed since her last egg landed. Completing it sends the hen into the nest state; the progress is only spent once the egg actually lands, so an interrupted walk doesn't lose the egg (see ADR-0013).
+_Avoid_: Lay clock (retired — there is no longer a recurring roll)
 
 **Happiness buff**:
 A flat, temporary happiness boost with an expiry. Granting one again while it's still active is a no-op — it neither extends the remaining time nor stacks a second bonus. A mealworm treat is the only source so far.
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
 
 **Clock**:
-The single source of simulated time every chicken's gauges advance against, replacing each chicken computing its own frame delta independently. Also owns the debug time scale below, since scaling time is part of the same "what does a second of sim time mean right now" concern.
+The single source of simulated time every chicken's gauges advance against, replacing each chicken computing its own frame delta independently. Also owns the debug time scale below, and every timer that affects a gauge (how long a chicken idles, the break between bouts), so the whole simulation speeds up together. Only cosmetic timing — walking and animation — stays in real time.
 
 **Time scale**:
 A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
@@ -95,14 +114,14 @@ One of a hen bed's three fixed positions for an egg. A bed is full once every sl
 _Avoid_: Nest slot, spot
 
 **Egg**:
-A collectable world object produced by a hen's lay clock. Sits either in a hen bed's egg slot (tidy — doesn't affect cleanliness) or on the ground as a floor egg. Tapping either kind collects it: increments the egg counter, removes the egg, and frees its slot if it had one.
+A collectable world object produced when a hen's lay progress completes. Sits either in a hen bed's egg slot (tidy — doesn't affect cleanliness) or on the ground as a floor egg. Tapping either kind collects it: increments the egg counter, removes the egg, and frees its slot if it had one.
 
 **Floor egg**:
-An egg that landed outside any hen bed's slots. Lands near the nearest bed if any bed exists on the island (every one of them full), or wherever the hen happens to be if no bed exists at all. Counted toward the cleanliness target as a dirty item, weighted the same as a dropping — collecting it removes that penalty automatically.
+An egg that landed outside any hen bed's slots. Lands near the nearest bed if any bed exists on the island (every one of them full), or wherever the hen happens to be if no bed exists at all. Counted toward the cleanliness target as a dirty item, but only half as dirty as a dropping — collecting it removes that penalty automatically.
 _Avoid_: Loose egg, ground egg
 
 **Nest**:
-The state a chicken is in while walking to where it will lay, entered the moment the lay clock fires: a hen bed with an open slot if one exists anywhere on the island, or a floor spot near the nearest bed if every bed is full. Preempts whatever the hen was doing, the same way a treat's placement preempts approach. Re-checks its target on arrival — if the chosen bed filled up in the meantime, it looks again for another bed with an open slot before falling back to the floor. If no bed exists anywhere on the island, the hen lays immediately instead of entering nest at all.
+The state a chicken is in while walking to where it will lay, entered the moment lay progress completes: a hen bed with an open slot if one exists anywhere on the island, or a floor spot near the nearest bed if every bed is full. Preempts whatever the hen was doing, the same way a treat's placement preempts approach. Re-checks its target on arrival — if the chosen bed filled up in the meantime, it looks again for another bed with an open slot before falling back to the floor. If no bed exists anywhere on the island, the hen lays immediately instead of entering nest at all.
 _Avoid_: Lay approach, settle (nest is the canonical term for this state)
 
 **Garden**:
@@ -129,11 +148,11 @@ Anything the player places on the island for a chicken to eat. Exists in exactly
 _Avoid_: Feed (already the verb, and the name of the module that owns these), food, ploppable
 
 **Food source**:
-A food item chickens repeatedly eat from, holding a pool of fullness (its capacity) that eating draws down. Any number of chickens can eat from it at once — they simply deplete it faster together — and it disappears the moment its pool reaches zero, never on a timer. Seed patch and lettuce are the two so far.
+A food item chickens repeatedly eat from, holding a pool of food units (its capacity) that eating draws down. Any number of chickens can eat from it at once — they simply deplete it faster together — and it disappears the moment its pool reaches zero, never on a timer. Seed patch and lettuce are the two so far.
 _Avoid_: Feeder (implies a container), station, plate
 
 **Treat**:
-A food item consumed whole by the single chicken that reaches it first, granting a one-off satiety bump and a temporary happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken was doing. Mealworm is the only one so far.
+A food item consumed whole by the single chicken that reaches it first, granting an instant satiety bump (an amount each treat type defines for itself) and a temporary happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken was doing. Mealworm is the only one so far.
 _Avoid_: Snack, one-shot food
 
 **Seed patch**:
@@ -141,11 +160,15 @@ One food source drawn as a scatter of individual seed sprites around the point i
 _Avoid_: Seeds, seed pile (the patch is one thing, not ten)
 
 **Capacity**:
-How much fullness a food source can deliver in total before it's used up, measured in the same units as the Satiety gauge (so a 100-capacity source is exactly enough to fill one empty chicken). Drawn down only by eating — sitting unused doesn't reduce it.
+How much food a food source holds, in food units, before it's used up. Drawn down only by eating — sitting unused doesn't reduce it.
 _Avoid_: TTL, lifetime, spoilage, durability, charges
 
+**Food unit**:
+The measure of food a food source holds, defined by what a fed chicken eats: about 100 food units keep one well-fed chicken fed for an hour. Each unit is worth only a small amount of satiety, so keeping a chicken fed is cheap but refilling a hungry one is deliberately expensive — a treat is the fast way back.
+_Avoid_: Fullness, satiety points (satiety is the chicken's gauge, not the food's)
+
 **Forage**:
-Eating from the bare ground, which a chicken falls back to only when no food source exists anywhere on the island — a treat waiting to be noticed doesn't count. Fills satiety no further than halfway, so placed food is the only route to a fully fed chicken. Never gets Eat's minimum-eating floor, so a forage bout can still end within its first second, same as always.
+Eating from the bare ground, which a chicken falls back to only when no food source exists anywhere on the island — a treat waiting to be noticed doesn't count. Starts only once satiety drops below the (low) forage hunger trigger and ends at the forage stop, never above halfway, so an unfed chicken hovers around a quarter full and placed food is the only route to a fully fed one.
 _Avoid_: Graze, peck, scratching
 
 **Approach**:
@@ -153,8 +176,24 @@ The state a chicken is in while walking to a food item it has picked. Unlike a w
 _Avoid_: Seek, travel, pathing
 
 **Eat**:
-The state a chicken is in while actively eating — from a claimed food source, or foraging in place with no target. From a food source, it's guaranteed to close at least half the gap between its satiety and full before it can quit early, so a hen that was already mostly fed still eats for a little while rather than stopping the instant it started; forage has no such floor (see Forage). Past that floor — or from the first moment, when foraging — it rolls roughly once a second for whether to stop, the chance rising the closer satiety already is to whichever ceiling is in force. Always ends the moment satiety reaches that ceiling regardless of the floor, and can also be cut short at any time by a treat, being picked up, or the food source running out.
+The state a chicken is in while actively eating — one bout from a claimed food source, or foraging in place with no target. Ends once the bout's target (or the forage stop) is reached, and can also be cut short at any time by a treat, being picked up, or the food source running out; a forage bout also ends the moment food is placed, so the chicken can head for it.
 _Avoid_: Eating (eat is the state's own name already)
 
 **Feed**:
 The single shared owner of every placed food item, and the one place a hungry chicken asks what there is to eat. Answers with a food item or with nothing — and nothing is what sends the chicken to forage. Owned by Garden alongside its chicken/bed/egg/dropping state — Garden owns everything else in the world, Feed owns the food side (see ADR-0011).
+
+## Time away
+
+**Offline catch-up**:
+Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food lasting, then food gone) instead of replaying every moment. Time away counts for at most a day. Treats are never eaten during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
+_Avoid_: Offline simulation, replay (it deliberately doesn't step through time)
+
+**Offline threshold**:
+How long the player must be away (ten minutes) before a return counts as time away. A shorter absence — a quick app switch — simply continues the game as if it had never paused: no catch-up, no welcome-back card, and the chicken stays where it was.
+
+**Welcome-back card**:
+The message shown after every offline catch-up, telling the player how long they were really away (not capped at a day). Dismissed with its OK button or a tap anywhere else; the game keeps running behind it.
+_Avoid_: Welcome screen, offline report (it reports only the time away, not what happened)
+
+**Fed plateau**:
+The satiety a chicken with food available averages over its hunger cycles. Offline catch-up holds a fed chicken there while food lasts. Its counterpart for an unfed chicken is the **unfed floor**, where foraging settles.

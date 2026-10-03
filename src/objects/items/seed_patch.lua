@@ -17,7 +17,7 @@ local COUNT = 10
 
 SeedPatch.WIDTH = ICON_NATIVE_SIZE * Constants.PIXEL_SCALE
 SeedPatch.HEIGHT = SeedPatch.WIDTH
-SeedPatch.CAPACITY = 100
+SeedPatch.CAPACITY = 100 -- food units (src/systems/tuning.lua): ~1 fed-chicken-hour
 SeedPatch.DESCRIPTOR = { icon = ICON_PATH, width = SeedPatch.WIDTH, height = SeedPatch.HEIGHT, type = "seed_patch" }
 
 -- Scatters the ten seed sprites near the patch's center; generated once and
