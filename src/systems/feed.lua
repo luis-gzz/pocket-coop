@@ -24,6 +24,10 @@ local OVERLAP_TRIGGER_DISTANCE = Constants.TILE_SIZE / 2
 -- About a tile, so the nudge itself is actually visible.
 local OVERLAP_JITTER_RADIUS = Constants.TILE_SIZE
 
+-- A source at or below this many units counts as empty, so float rounding
+-- can't leave a near-invisible pile behind.
+local EMPTY_EPSILON = 1e-6
+
 -- Every placed food item (sources and treats) lives in this one list.
 local items = {}
 local onSave = nil
@@ -111,7 +115,7 @@ function Feed.deplete(item, satietyDelivered)
 	if item.updateVisual then
 		item.updateVisual()
 	end
-	if item.remaining <= 0 then
+	if item.remaining <= EMPTY_EPSILON then
 		removeItem(item)
 		save()
 		return false
@@ -186,7 +190,7 @@ function Feed.drainOldest(units)
 			local taken = math.min(units, item.remaining)
 			units = units - taken
 			item.remaining = item.remaining - taken
-			if item.remaining <= 0 then
+			if item.remaining <= EMPTY_EPSILON then
 				removeItem(item)
 			else
 				if item.updateVisual then

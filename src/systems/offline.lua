@@ -57,6 +57,9 @@ function Offline.compute(input, elapsedSeconds)
 		fedHours = math.min(hours, units / (Tuning.FED_UNITS_PER_CHICKEN_HOUR * count))
 	end
 	local unitsConsumed = (input.units - units) + fedHours * Tuning.FED_UNITS_PER_CHICKEN_HOUR * count
+	if ranDry or fedHours < hours then
+		unitsConsumed = input.units -- ran out: exact, so rounding can't leave a crumb
+	end
 
 	-- 3. Starved: decay from each chicken's phase-start value, stopping at
 	-- the unfed floor (a chicken already below it forages back up to it).
