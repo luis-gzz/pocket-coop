@@ -1,6 +1,6 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
-local Island = require("src.systems.island")
+local Layout = require("src.ui.layout")
 local Clock = require("src.systems.clock")
 local Tuning = require("src.systems.tuning")
 local Save = require("src.systems.save")
@@ -23,7 +23,7 @@ local Garden = {}
 
 -- The radius (CONTEXT.md's Egg slot) a hen picks a floor spot within when
 -- every bed is full, so an overflow egg still lands near a bed rather than
--- anywhere on the island.
+-- anywhere in the play area.
 local FLOOR_LAY_RADIUS = 3 * Constants.TILE_SIZE
 
 local chickens = {} -- array of Chicken instances
@@ -53,8 +53,8 @@ local function randomPointNear(x, y, radius)
 	return x + math.cos(angle) * distance, y + math.sin(angle) * distance
 end
 
-local function clampToIsland(x, y, width, height)
-	local bounds = Island.getInnerBounds()
+local function clampToPlayArea(x, y, width, height)
+	local bounds = Layout.getPlayArea()
 	return clamp(x, bounds.minX + width / 2, bounds.maxX - width / 2),
 		clamp(y, bounds.minY + height / 2, bounds.maxY - height / 2)
 end
@@ -129,7 +129,7 @@ end
 
 -- Resolves a bed placement or drag to its final (x, y): rejects outright if
 -- it would leave the play area (nil, nil), otherwise nudges out of another
--- bed's overlap zone if needed and re-clamps into the island (ADR-0014).
+-- bed's overlap zone if needed and re-clamps into the play area (ADR-0014).
 -- exclude is the bed's own record when repositioning an existing one.
 function Garden.resolveBedPlacement(x, y, exclude)
 	if not Bed.isValidPosition(x, y) then
@@ -139,7 +139,7 @@ function Garden.resolveBedPlacement(x, y, exclude)
 	local overlapping = overlapsAnotherBed(x, y, exclude)
 	if overlapping then
 		x, y = separateFromBed(x, y, overlapping)
-		x, y = clampToIsland(x, y, Bed.WIDTH, Bed.HEIGHT)
+		x, y = clampToPlayArea(x, y, Bed.WIDTH, Bed.HEIGHT)
 	end
 
 	return x, y
@@ -186,10 +186,10 @@ local function insertDropping(record)
 	table.insert(droppings, view)
 end
 
--- A uniformly random point on the island for an object of the given size -
+-- A uniformly random point in the play area for an object of the given size -
 -- where offline catch-up puts things it has no position for.
-local function randomIslandPoint(width, height)
-	local bounds = Island.getInnerBounds()
+local function randomPlayAreaPoint(width, height)
+	local bounds = Layout.getPlayArea()
 	local x = bounds.minX + width / 2 + math.random() * (bounds.maxX - bounds.minX - width)
 	local y = bounds.minY + height / 2 + math.random() * (bounds.maxY - bounds.minY - height)
 	return x, y
@@ -262,7 +262,7 @@ function Garden.pickLayTarget(x, y)
 	local closestBed = findNearestBed(x, y, false)
 	if closestBed then
 		local floorX, floorY = randomPointNear(closestBed.x, closestBed.y, FLOOR_LAY_RADIUS)
-		floorX, floorY = clampToIsland(floorX, floorY, Egg.WIDTH, Egg.HEIGHT)
+		floorX, floorY = clampToPlayArea(floorX, floorY, Egg.WIDTH, Egg.HEIGHT)
 		return { kind = "floor", x = floorX, y = floorY }
 	end
 
@@ -406,7 +406,7 @@ local function catchUp(elapsedSeconds)
 		gauges.layThreshold = outcome.layThreshold
 
 		for n = 1, outcome.droppings do
-			local x, y = randomIslandPoint(Dropping.WIDTH, Dropping.HEIGHT)
+			local x, y = randomPlayAreaPoint(Dropping.WIDTH, Dropping.HEIGHT)
 			local createdAt = startNow + elapsedSeconds * n / (outcome.droppings + 1)
 			insertDropping({ x = x, y = y, createdAt = createdAt })
 		end
@@ -416,7 +416,7 @@ local function catchUp(elapsedSeconds)
 			local target = Garden.pickLayTarget(hx, hy)
 			local x, y = target.x, target.y
 			if target.kind == "immediate" then
-				x, y = randomIslandPoint(Egg.WIDTH, Egg.HEIGHT)
+				x, y = randomPlayAreaPoint(Egg.WIDTH, Egg.HEIGHT)
 			end
 			placeEgg(target, x, y)
 		end

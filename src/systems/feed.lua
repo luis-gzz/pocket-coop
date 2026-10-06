@@ -1,5 +1,5 @@
 local Constants = require("src.util.constants")
-local Island = require("src.systems.island")
+local Layout = require("src.ui.layout")
 local Tuning = require("src.systems.tuning")
 local SeedPatch = require("src.objects.items.seed_patch")
 local Lettuce = require("src.objects.items.lettuce")
@@ -51,17 +51,17 @@ local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
 end
 
-local function isWithinIsland(x, y, width, height)
-	local bounds = Island.getInnerBounds()
+local function isWithinPlayArea(x, y, width, height)
+	local bounds = Layout.getPlayArea()
 	return x - width / 2 >= bounds.minX
 		and x + width / 2 <= bounds.maxX
 		and y - height / 2 >= bounds.minY
 		and y + height / 2 <= bounds.maxY
 end
 
--- Clamps (x, y) so a width x height footprint stays fully within the island.
-local function clampToIsland(x, y, width, height)
-	local bounds = Island.getInnerBounds()
+-- Clamps (x, y) so a width x height footprint stays fully within the play area.
+local function clampToPlayArea(x, y, width, height)
+	local bounds = Layout.getPlayArea()
 	return clamp(x, bounds.minX + width / 2, bounds.maxX - width / 2),
 		clamp(y, bounds.minY + height / 2, bounds.maxY - height / 2)
 end
@@ -75,18 +75,18 @@ local function findNearbyItem(x, y, exclude)
 	return nil
 end
 
--- Rejects a drop outside the island; otherwise always succeeds, nudging a
--- little (clamped back into the island) if it lands too close to another
+-- Rejects a drop outside the play area; otherwise always succeeds, nudging a
+-- little (clamped back into the play area) if it lands too close to another
 -- food item's center.
 local function computePlacement(width, height, x, y, exclude)
-	if not isWithinIsland(x, y, width, height) then
+	if not isWithinPlayArea(x, y, width, height) then
 		return nil, nil
 	end
 
 	if findNearbyItem(x, y, exclude) then
 		local angle = math.random() * math.pi * 2
 		local distance = math.random() * OVERLAP_JITTER_RADIUS
-		x, y = clampToIsland(x + math.cos(angle) * distance, y + math.sin(angle) * distance, width, height)
+		x, y = clampToPlayArea(x + math.cos(angle) * distance, y + math.sin(angle) * distance, width, height)
 	end
 
 	return x, y

@@ -1,6 +1,6 @@
 local StateMachine = require("src.util.state_machine")
 local Constants = require("src.util.constants")
-local Island = require("src.systems.island")
+local Layout = require("src.ui.layout")
 local YSort = require("src.systems.y_sort")
 local Gauges = require("src.objects.chicken.gauges")
 local Clock = require("src.systems.clock")
@@ -13,7 +13,7 @@ local Chicken = {}
 Chicken.__index = Chicken
 
 local SPRITE_SIZE = 16
--- Shared with the island tiles so pixel density matches across all art.
+-- Shared with the ground tiles so pixel density matches across all art.
 local DISPLAY_SCALE = Constants.PIXEL_SCALE
 local SHEET_PATH = "assets/fauna/CHICKEN/"
 local COLOR = "LightBrown"
@@ -59,17 +59,15 @@ local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
 end
 
--- Keeps the chicken (idle, wander, and drag) inside the island's play area,
--- which is itself already inset from the island's outer border tiles. The
--- top is allowed to go half a sprite further, so the chicken can walk half
--- off the top edge instead of stopping flush against it.
+-- Keeps the chicken's whole sprite (idle, wander, and drag) inside the play
+-- area, so it never pokes into the UI bands.
 local function getBounds()
-	local rect = Island.getInnerBounds()
+	local rect = Layout.getPlayArea()
 	local halfSize = (SPRITE_SIZE * DISPLAY_SCALE) / 2
 	return {
 		minX = rect.minX + halfSize,
 		maxX = rect.maxX - halfSize,
-		minY = rect.minY,
+		minY = rect.minY + halfSize,
 		maxY = rect.maxY - halfSize,
 	}
 end
@@ -594,7 +592,7 @@ STATES = {
 			else
 				destX, destY = target.x, target.y
 			end
-			-- A bed can sit right at the island's edge, just outside the
+			-- A bed can sit right at the play area's edge, just outside the
 			-- chicken's own (slightly more inset) movement bounds - clamped
 			-- the same way pickEatingSpot/pickWanderDestination already are.
 			local bounds = getBounds()

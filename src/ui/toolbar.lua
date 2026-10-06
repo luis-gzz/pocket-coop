@@ -24,7 +24,7 @@ local SLOT_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 -- Every item gets the same fixed-size square slot regardless of its own
 -- icon's dimensions - the resting icon inside is scaled down to fit (see
 -- containFit), decoupling toolbar row layout from any one item's art size.
--- The bottom band's height is derived from the island's leftover space
+-- The bottom band's height is derived from the play area's leftover space
 -- (ADR-0009), not fixed, so this is sized to comfortably fit within it on
 -- real devices rather than pinned a few units under a fixed band height.
 local SLOT_SIZE = 22 * Constants.PIXEL_SCALE

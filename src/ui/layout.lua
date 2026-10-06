@@ -1,15 +1,14 @@
 local Constants = require("src.util.constants")
 
--- The island and the two UI bands above/below it (CONTEXT.md, ADR-0009).
--- The island is generated first, sized to fill WIDTH_FRACTION/HEIGHT_FRACTION
--- of the safe area (floored to whole tiles); the bands are whatever
--- vertical space is left over around it, not a fixed size of their own.
+-- The play area and the two UI bands above/below it (CONTEXT.md, ADR-0009,
+-- ADR-0017). The play area claims HEIGHT_FRACTION of the safe area's height;
+-- the bands are whatever vertical space is left over around it.
 local Layout = {}
 
 local TILE_SIZE = Constants.TILE_SIZE
 
-local WIDTH_FRACTION = 1.0
 local HEIGHT_FRACTION = 0.85
+local SIDE_MARGIN_FRACTION = 0.02
 
 local function getSafeRect()
 	local topInset, leftInset, bottomInset, rightInset = display.getSafeAreaInsets()
@@ -21,44 +20,41 @@ local function getSafeRect()
 	}
 end
 
--- Fits a whole number of tiles into WIDTH_FRACTION/HEIGHT_FRACTION of the
--- safe area (so the island's border tiles are never cut off mid-tile),
--- horizontally centered. Whatever vertical space the island doesn't claim
--- is split between the top and bottom bands - evenly for now, with the
--- bottom band taking the extra pixel when it doesn't split evenly
--- (ADR-0009).
+-- Leftover height is split a third to the top band, the rest to the bottom.
 local function computeBands()
 	local safeRect = getSafeRect()
 	local safeWidth = safeRect.maxX - safeRect.minX
 	local safeHeight = safeRect.maxY - safeRect.minY
 
-	local columns = math.max(1, math.floor((safeWidth * WIDTH_FRACTION) / TILE_SIZE))
-	local rows = math.max(1, math.floor((safeHeight * HEIGHT_FRACTION) / TILE_SIZE))
+	local playHeight = safeHeight * HEIGHT_FRACTION
+	local sideMargin = safeWidth * SIDE_MARGIN_FRACTION
+	local topBandHeight = math.floor((safeHeight - playHeight) / 3)
 
-	local islandWidth = columns * TILE_SIZE
-	local islandHeight = rows * TILE_SIZE
-	local islandMinX = safeRect.minX + (safeWidth - islandWidth) / 2
-
-	local leftover = safeHeight - islandHeight
-	local topBandHeight = math.floor(leftover / 3)
-
-	local islandMinY = safeRect.minY + topBandHeight
-	local islandMaxY = islandMinY + islandHeight
+	local playMinY = safeRect.minY + topBandHeight
+	local playMaxY = playMinY + playHeight
 
 	return {
-		columns = columns,
-		rows = rows,
-		islandRect = { minX = islandMinX, maxX = islandMinX + islandWidth, minY = islandMinY, maxY = islandMaxY },
-		topBandRect = { minX = safeRect.minX, maxX = safeRect.maxX, minY = safeRect.minY, maxY = islandMinY },
-		bottomBandRect = { minX = safeRect.minX, maxX = safeRect.maxX, minY = islandMaxY, maxY = safeRect.maxY },
+		playRect = {
+			minX = safeRect.minX + sideMargin,
+			maxX = safeRect.maxX - sideMargin,
+			minY = playMinY,
+			maxY = playMaxY,
+		},
+		topBandRect = { minX = safeRect.minX, maxX = safeRect.maxX, minY = safeRect.minY, maxY = playMinY },
+		bottomBandRect = { minX = safeRect.minX, maxX = safeRect.maxX, minY = playMaxY, maxY = safeRect.maxY },
 	}
 end
 
--- The island's rect plus its tile grid dimensions - src/systems/island.lua
--- renders into this instead of computing its own size (ADR-0009).
-function Layout.getIslandRect()
-	local bands = computeBands()
-	return { rect = bands.islandRect, columns = bands.columns, rows = bands.rows }
+-- Where world objects may move and be placed. The bottom stops half a tile
+-- short of the bottom band.
+function Layout.getPlayArea()
+	local rect = computeBands().playRect
+	return {
+		minX = rect.minX,
+		maxX = rect.maxX,
+		minY = rect.minY,
+		maxY = rect.maxY - TILE_SIZE / 2,
+	}
 end
 
 function Layout.getTopBandRect()

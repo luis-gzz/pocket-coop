@@ -12,12 +12,7 @@ display.setDefault("magTextureFilter", "nearest")
 -- texel. Must be set before any graphics.newImageSheet call.
 display.setDefault("isImageSheetSampledInsideFrame", true)
 
-local Color = require("src.util.color")
-
--- Backdrop behind the island, filling the whole camera.
-display.setDefault("background", Color.hexToRGB("#a2dcc7"))
-
-local Island = require("src.systems.island")
+local Ground = require("src.systems.ground")
 local YSort = require("src.systems.y_sort")
 local Garden = require("src.systems.garden")
 local Hud = require("src.ui.hud")
@@ -28,7 +23,7 @@ local WelcomeCard = require("src.ui.welcome_card")
 
 local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
-Island.create()
+Ground.create()
 
 -- The floor layer (hen beds) - created first so it's inserted, and therefore
 -- always renders, behind the main world group below (ADR-0014).

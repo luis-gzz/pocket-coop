@@ -1,7 +1,7 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Wiggle = require("src.util.wiggle")
-local Island = require("src.systems.island")
+local Layout = require("src.ui.layout")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -40,12 +40,12 @@ local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
 -- Whether a bed centered at (x, y) would sit fully inside the play area -
--- every edge, not just its center point. Only checks Island's static
+-- every edge, not just its center point. Only checks the play area's static
 -- bounds; overlap against other beds is Garden's own resolveBedPlacement
 -- (ADR-0014), the same split Feed's computePlacement already uses for food
 -- items (see mealworm.lua's resolveDrop).
 function Bed.isValidPosition(x, y)
-	local bounds = Island.getInnerBounds()
+	local bounds = Layout.getPlayArea()
 	return x - Bed.WIDTH / 2 >= bounds.minX
 		and x + Bed.WIDTH / 2 <= bounds.maxX
 		and y - Bed.HEIGHT / 2 >= bounds.minY
