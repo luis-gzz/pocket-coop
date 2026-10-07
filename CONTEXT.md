@@ -169,7 +169,7 @@ Eating from the bare ground, which a chicken falls back to only when no food sou
 _Avoid_: Graze, peck, scratching
 
 **Approach**:
-The state a chicken is in while walking to a food item it has picked. Unlike a wander destination, the target is a specific food item, and arrival either enters eat (a food source) or consumes the treat at once and lingers briefly playing the eat animation (a mealworm has nothing to eat over time, but still gets a couple of seconds of the animation as a flourish) — or re-decides, if the target is gone before it gets there.
+The state a chicken is in while walking to a food item it has picked. Unlike a wander destination, the target is a specific food item, and arrival either enters eat (a food source) or eats the treat over a couple of seconds of the eat animation, the treat staying in place until it's done — or re-decides, if the target is gone before it gets there.
 _Avoid_: Seek, travel, pathing
 
 **Eat**:

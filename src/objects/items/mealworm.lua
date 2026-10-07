@@ -23,8 +23,8 @@ local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
 -- item: { kind="treat", type="mealworm", x, y, width, height, claimedBy,
--- removed } owned by Feed. Dragging it while claimed keeps the claim and
--- re-targets the chicken mid-walk.
+-- removed, dragging } owned by Feed. Picking it up frees any claim, and
+-- it can't be claimed again until it's put down.
 --
 -- resolveDrop(x, y) is Feed's own overlap/bounds check (today's
 -- computePlacement, excluding this item) - it returns the final (possibly
@@ -50,6 +50,10 @@ function Mealworm.new(item, resolveDrop)
 
 	local function beginDrag(startX, startY)
 		isDragging = true
+		item.dragging = true
+		if item.claimedBy then
+			item.claimedBy:abandonFoodTarget()
+		end
 		originalX, originalY = item.x, item.y
 		dragOffsetX = sprite.x - startX
 		dragOffsetY = sprite.y - startY
@@ -61,9 +65,6 @@ function Mealworm.new(item, resolveDrop)
 	local function moveTo(x, y)
 		sprite.x, sprite.y = x, y
 		item.x, item.y = x, y
-		if item.claimedBy and item.claimedBy.retargetApproach then
-			item.claimedBy:retargetApproach()
-		end
 	end
 
 	local function onTouch(event)
@@ -104,6 +105,7 @@ function Mealworm.new(item, resolveDrop)
 					end
 					if finalX then
 						moveTo(finalX, finalY)
+						item.dragging = false
 					else
 						transition.to(sprite, {
 							x = originalX,
@@ -111,6 +113,7 @@ function Mealworm.new(item, resolveDrop)
 							time = 150,
 							onComplete = function()
 								moveTo(originalX, originalY)
+								item.dragging = false
 							end,
 						})
 					end

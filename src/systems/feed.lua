@@ -148,12 +148,12 @@ function Feed.findNearestSource(x, y)
 	return nearest
 end
 
--- Claims the nearest unclaimed treat within TREAT_ALERT_RADIUS of (x, y)
--- for `chicken`, or returns nil.
+-- Claims the nearest treat within TREAT_ALERT_RADIUS of (x, y) that's
+-- unclaimed (and not mid-drag) or already `chicken`'s own, or returns nil.
 function Feed.claimTreatNear(chicken, x, y)
 	local nearest, nearestDistance = nil, nil
 	for _, item in ipairs(items) do
-		if item.kind == "treat" and not item.claimedBy then
+		if item.kind == "treat" and not item.dragging and (not item.claimedBy or item.claimedBy == chicken) then
 			local distance = distanceSquared(x, y, item.x, item.y)
 			if distance <= TREAT_ALERT_RADIUS * TREAT_ALERT_RADIUS then
 				if not nearestDistance or distance < nearestDistance then

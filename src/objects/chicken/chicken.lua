@@ -137,8 +137,8 @@ local function finishBout(chicken)
 	chicken.machine:changeState(decideNextState(chicken))
 end
 
--- Applies the treat's payoff and removes it immediately; the chicken still
--- lingers in "eatTreat" afterward to play the eat animation.
+-- Applies the treat's payoff and removes it - called once "eatTreat"'s
+-- animation finishes, so the treat stays visible while being eaten.
 local function consumeTreat(chicken)
 	local target = chicken.foodTarget
 	chicken.gauges:applyTreat(target.fullness)
@@ -315,11 +315,12 @@ function Chicken:setFoodTarget(newTarget)
 	self.foodTarget = newTarget
 end
 
--- Re-enters "approach" so a chicken following a dragged treat re-paths
--- toward its live position.
-function Chicken:retargetApproach()
-	if self.machine.name == "approach" then
-		self.machine:changeState("approach")
+-- Gives up a treat the player just picked up; the treat alert re-claims
+-- the nearest one once it's placed again.
+function Chicken:abandonFoodTarget()
+	self:setFoodTarget(nil)
+	if self.machine.name == "approach" or self.machine.name == "eatTreat" then
+		self.machine:changeState(decideNextState(self))
 	end
 end
 
@@ -391,7 +392,7 @@ function Chicken:update(dt, dirt, hasSource)
 	-- does for any other interruption.
 	if self.machine.name ~= "held" then
 		local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
-		if claimed then
+		if claimed and claimed ~= self.foodTarget then
 			self:cancelNesting()
 			self:setFoodTarget(claimed)
 			self.machine:changeState("approach")
@@ -526,7 +527,7 @@ STATES = {
 	},
 
 	-- Walks to a claimed food item; arrival hands off to "eat" for a source
-	-- or consumes a treat outright.
+	-- or "eatTreat" for a treat.
 	approach = {
 		enter = function(chicken)
 			local target = chicken.foodTarget
@@ -554,7 +555,6 @@ STATES = {
 						chicken:setFoodTarget(nil)
 						chicken.machine:changeState(decideNextState(chicken))
 					elseif chicken.foodTarget.kind == "treat" then
-						consumeTreat(chicken)
 						chicken.machine:changeState("eatTreat")
 					else
 						chicken.machine:changeState("eat")
@@ -652,12 +652,16 @@ STATES = {
 		end,
 	},
 
-	-- Plays the eat animation for a fixed duration after finishing a mealworm.
+	-- Plays the eat animation over a claimed treat for a fixed duration,
+	-- then consumes it.
 	eatTreat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
 			chicken.eatTreatTimerHandle = Clock.after(TREAT_EAT_DURATION, function()
 				chicken.eatTreatTimerHandle = nil
+				if chicken.foodTarget and not chicken.foodTarget.removed then
+					consumeTreat(chicken)
+				end
 				chicken.machine:changeState(decideNextState(chicken))
 			end)
 		end,
