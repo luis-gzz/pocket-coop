@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0017
+---
+
 # The island is deliberately smaller than the camera, not equal to it
 
 ADR-0001 concluded the tiled play space should always exactly match the camera, since that kept wander bounds-checking and rendering simple. We're reversing that specific consequence: the island is now sized to 80% of the safe area's width and height (top-justified, horizontally centered), with a flat-colored backdrop filling the rest of the camera around it, so the play space visually reads as its own distinct object — a diorama — rather than an edge-to-edge world.
