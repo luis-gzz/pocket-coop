@@ -70,6 +70,8 @@ function Gauges.new(saved)
 	self.now = saved.now or 0
 	self.satiety = saved.satiety or 100
 	self.cleanliness = saved.cleanliness or 100
+	-- Pinned full until water exists; not saved and not part of happiness yet.
+	self.hydration = 100
 	self.happinessBuffExpiresAt = saved.happinessBuffExpiresAt or 0
 	self.satisfiedUntil = saved.satisfiedUntil or 0
 

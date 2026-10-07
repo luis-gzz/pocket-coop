@@ -31,9 +31,12 @@ local GROUND_OFFSET = (SPRITE_SIZE / 2) * DISPLAY_SCALE
 
 local SELECTED_PATH = "assets/fauna/CHICKEN/chickeSelected.png"
 
--- Shown in the tooltip's buff row while a happiness buff is active.
-local HEART_PATH = "assets/fauna/heart.png"
-local HEART_ICON_SIZE = 9 * DISPLAY_SCALE
+-- Placeholder until chickens can be named.
+local NAME = "Pollo"
+local HAPPINESS_ICON = "assets/fauna/heart.png"
+local FULLNESS_ICON = "assets/objects/carrot.png"
+local CLEANLINESS_ICON = "assets/objects/sparkle.png"
+local HYDRATION_ICON = "assets/objects/water_drop.png"
 
 local IDLE_DWELL = { min = 2, max = 4 } -- sim-seconds
 local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not eating
@@ -72,12 +75,27 @@ local function getBounds()
 	}
 end
 
+local WANDER_PICK_ATTEMPTS = 10
+
+-- Retries rather than clamps: clamping an off-area point pins it to the edge,
+-- so a chicken already there walks in place. Falls back to heading inward.
 local function pickWanderDestination(chicken)
 	local bounds = getBounds()
-	local angle = math.random() * math.pi * 2
+	local fromX, fromY = chicken.view.x, chicken.view.y
+	for _ = 1, WANDER_PICK_ATTEMPTS do
+		local angle = math.random() * math.pi * 2
+		local radius = math.random(WANDER_MIN_RADIUS, WANDER_MAX_RADIUS)
+		local x = fromX + math.cos(angle) * radius
+		local y = fromY + math.sin(angle) * radius
+		if x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY then
+			return x, y
+		end
+	end
+
+	local angle = math.atan2((bounds.minY + bounds.maxY) / 2 - fromY, (bounds.minX + bounds.maxX) / 2 - fromX)
 	local radius = math.random(WANDER_MIN_RADIUS, WANDER_MAX_RADIUS)
-	local x = clamp(chicken.view.x + math.cos(angle) * radius, bounds.minX, bounds.maxX)
-	local y = clamp(chicken.view.y + math.sin(angle) * radius, bounds.minY, bounds.maxY)
+	local x = clamp(fromX + math.cos(angle) * radius, bounds.minX, bounds.maxX)
+	local y = clamp(fromY + math.sin(angle) * radius, bounds.minY, bounds.maxY)
 	return x, y
 end
 
@@ -121,9 +139,6 @@ local function decideNextState(chicken)
 	end
 
 	chicken:setFoodTarget(nil)
-	if chicken.selected then
-		return "idle"
-	end
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
 end
 
@@ -177,8 +192,11 @@ function Chicken.new(saved, layCallbacks)
 
 	self.view = display.newGroup()
 	YSort.getGroup():insert(self.view)
-	self.view.x = (saved and saved.x) or (spawnBounds.minX + spawnBounds.maxX) / 2
-	self.view.y = (saved and saved.y) or (spawnBounds.minY + spawnBounds.maxY) / 2
+	-- Clamped in case the save came from a different layout or screen size.
+	local spawnX = (saved and saved.x) or (spawnBounds.minX + spawnBounds.maxX) / 2
+	local spawnY = (saved and saved.y) or (spawnBounds.minY + spawnBounds.maxY) / 2
+	self.view.x = clamp(spawnX, spawnBounds.minX, spawnBounds.maxX)
+	self.view.y = clamp(spawnY, spawnBounds.minY, spawnBounds.maxY)
 	self.view.xScale = DISPLAY_SCALE
 	self.view.yScale = DISPLAY_SCALE
 	self.facing = 1
@@ -243,15 +261,10 @@ function Chicken:setFacing(direction)
 	end
 end
 
--- Opening the tooltip stops whatever the chicken was doing and drops it to idle.
+-- Purely visual - a selected chicken keeps doing whatever it was doing.
 function Chicken:setSelected(value)
 	self.selected = value
 	self.selectedIndicator.isVisible = value
-	if value and self.machine.name ~= "idle" and self.machine.name ~= "held" then
-		self:setFoodTarget(nil)
-		self:cancelNesting()
-		self.machine:changeState("idle")
-	end
 end
 
 -- Abandons an in-progress walk to lay, letting lay progress fire again
@@ -379,7 +392,7 @@ function Chicken:update(dt, dirt, hasSource)
 	local isForaging = state == "eat" and not self.foodTarget
 	local interruptible = state == "idle" or state == "wander"
 		or (isForaging and self.gauges:getHungerMode() == "food")
-	if interruptible and not self.selected then
+	if interruptible then
 		local hungerState = pickHungerState(self)
 		if hungerState then
 			self.machine:changeState(hungerState)
@@ -415,33 +428,55 @@ function Chicken:setupTouch()
 	local hitArea = self.hitArea
 
 	local function beginHeld(x, y)
-		if self.selected then
-			self:setSelected(false)
-			Tooltip:hide()
-		end
-
 		local view = self.view
 		self.dragOffsetX = view.x - x
 		self.dragOffsetY = view.y - y
 		self.machine:changeState("held")
 	end
 
+	local function isOverChicken(x, y)
+		local bounds = hitArea.contentBounds
+		return x >= bounds.xMin and x <= bounds.xMax and y >= bounds.yMin and y <= bounds.yMax
+	end
+
+	-- Drops a touch that left the chicken before pickup: no pickup, no tooltip.
+	local function cancelPendingTouch()
+		if self.longPressHandle then
+			timer.cancel(self.longPressHandle)
+			self.longPressHandle = nil
+		end
+		self.pendingTouch = nil
+		display.getCurrentStage():setFocus(hitArea, nil)
+		hitArea.isFocus = false
+	end
+
+	local lastX, lastY
+
 	local function onTouch(event)
 		if event.phase == "began" then
 			display.getCurrentStage():setFocus(hitArea, event.id)
 			hitArea.isFocus = true
 			self.pendingTouch = true
-			local startX, startY = event.x, event.y
+			lastX, lastY = event.x, event.y
 			self.longPressHandle = timer.performWithDelay(LONG_PRESS_TIME, function()
 				self.longPressHandle = nil
-				if self.pendingTouch then
-					beginHeld(startX, startY)
-					self.pendingTouch = nil
+				if not self.pendingTouch then
+					return
 				end
+				-- The chicken may have walked out from under a still finger.
+				if not isOverChicken(lastX, lastY) then
+					cancelPendingTouch()
+					return
+				end
+				beginHeld(lastX, lastY)
+				self.pendingTouch = nil
 			end)
 		elseif hitArea.isFocus then
 			if event.phase == "moved" then
-				if self.machine.name == "held" then
+				lastX, lastY = event.x, event.y
+				if self.pendingTouch and not isOverChicken(event.x, event.y) then
+					cancelPendingTouch()
+				elseif self.machine.name == "held" then
 					local view = self.view
 					local bounds = getBounds()
 					view.x = clamp(event.x + self.dragOffsetX, bounds.minX, bounds.maxX)
@@ -459,6 +494,8 @@ function Chicken:setupTouch()
 						Tooltip.show({
 							x = self.view.x,
 							y = self.view.y,
+							corner = true,
+							title = NAME,
 							onShow = function()
 								self:setSelected(true)
 							end,
@@ -466,20 +503,16 @@ function Chicken:setupTouch()
 								self:setSelected(false)
 							end,
 							rows = {
-								{ label = "Fullness", getValue = function() return self.gauges.satiety end },
-								{ label = "Cleanliness", getValue = function() return self.gauges.cleanliness end },
-								{ label = "Happiness", getValue = function() return self.gauges:getHappiness() end },
-							},
-							buffs = {
-								{
-									icon = HEART_PATH,
-									size = HEART_ICON_SIZE,
-									isActive = function() return self.gauges:isHappinessBuffActive() end,
-								},
+								{ icon = HAPPINESS_ICON, getValue = function() return self.gauges:getHappiness() end },
+								{ icon = FULLNESS_ICON, getValue = function() return self.gauges.satiety end },
+								{ icon = CLEANLINESS_ICON, getValue = function() return self.gauges.cleanliness end },
+								{ icon = HYDRATION_ICON, getValue = function() return self.gauges.hydration end },
 							},
 						})
 					end
 				elseif self.machine.name == "held" then
+					-- Releasing in place synthesizes a tap; don't let it close the tooltip.
+					Tooltip.ignoreNextTap()
 					self.machine:changeState(decideNextState(self))
 				end
 			end
