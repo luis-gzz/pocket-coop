@@ -9,10 +9,10 @@ Gauges.__index = Gauges
 -- distinct.
 local DROPPING_JITTER_RADIUS = 10 -- world points
 
--- Happiness buff: a flat, temporary bonus with an expiry, not stacked by a
--- repeat grant. Currently only a mealworm grants one.
-local HAPPINESS_BUFF_AMOUNT = 25
-local HAPPINESS_BUFF_DURATION = 5 * 60 -- seconds
+-- Happiness buff: a flat, temporary bonus; a repeat grant restarts the
+-- duration rather than stacking. Granted by any treat.
+Gauges.HAPPINESS_BUFF_AMOUNT = 25
+local HAPPINESS_BUFF_DURATION = 60 * 60 -- seconds
 
 -- Happiness: weighted average of satiety/cleanliness where the worse of the
 -- two pulls harder (lower K = harsher penalty for a lopsided pair).
@@ -45,7 +45,7 @@ function Gauges.happinessFor(satiety, cleanliness, buffActive)
 	local weightSatiety = (100 - satiety) + HAPPINESS_K
 	local weightCleanliness = (100 - cleanliness) + HAPPINESS_K
 	local base = (weightSatiety * satiety + weightCleanliness * cleanliness) / (weightSatiety + weightCleanliness)
-	return clamp100(base + (buffActive and HAPPINESS_BUFF_AMOUNT or 0))
+	return clamp100(base + (buffActive and Gauges.HAPPINESS_BUFF_AMOUNT or 0))
 end
 
 -- Eggs per hour at happiness h: none below the gate, ramping from
@@ -235,9 +235,9 @@ function Gauges:markLaid()
 	self.pendingLay = false
 end
 
--- Instant satiety from a treat (amount per treat type). Reaching 100 grants
--- the satisfied buff like any meal.
-function Gauges:applyTreat(amount)
+-- Instant satiety from a mealworm. Reaching 100 grants the satisfied buff
+-- like any meal.
+function Gauges:applySatiety(amount)
 	local before = self.satiety
 	self.satiety = clamp100(self.satiety + amount)
 	if before < Tuning.FOOD_CEILING and self.satiety >= Tuning.FOOD_CEILING then
@@ -245,8 +245,14 @@ function Gauges:applyTreat(amount)
 	end
 end
 
--- Grants the happiness buff (see isHappinessBuffActive) - currently only
--- called when a chicken finishes eating a mealworm.
+-- Instant cleanliness from ash; it then eases back toward the dirt
+-- target like any other value (ADR-0004).
+function Gauges:applyCleanliness(amount)
+	self.cleanliness = clamp100(self.cleanliness + amount)
+end
+
+-- Grants (or restarts) the happiness buff - called when a chicken finishes
+-- any treat.
 function Gauges:applyHappinessBuff()
 	self.happinessBuffExpiresAt = self.now + HAPPINESS_BUFF_DURATION
 end

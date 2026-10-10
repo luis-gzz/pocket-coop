@@ -5,6 +5,7 @@ local Clock = require("src.systems.clock")
 local Tuning = require("src.systems.tuning")
 local Save = require("src.systems.save")
 local Feed = require("src.systems.feed")
+local Treats = require("src.systems.treats")
 local Offline = require("src.systems.offline")
 local Gauges = require("src.objects.chicken.gauges")
 local Chicken = require("src.objects.chicken.chicken")
@@ -13,9 +14,9 @@ local Egg = require("src.objects.items.egg")
 local Dropping = require("src.objects.items.dropping")
 
 -- The single shared owner of every chicken, hen bed, egg, and dropping in
--- the garden, plus the player's collected-egg count, with Feed held
--- alongside it for the food side (CONTEXT.md's "Garden"). A hen's Gauges
--- (its lay progress) decides WHEN she lays; this module decides WHERE the
+-- the garden, plus the player's collected-egg count, with Feed and Treats
+-- held alongside it for food sources and treats (CONTEXT.md's "Garden").
+-- A hen's Gauges (its lay progress) decides WHEN she lays; this module decides WHERE the
 -- resulting egg goes and whose cleanliness a dropping counts against, since
 -- beds/eggs/droppings belong to the garden as a whole, not to any one hen
 -- (ADR-0007); the hen's own nest state carries out the walk there (ADR-0013).
@@ -158,13 +159,14 @@ local function getFloorEggCount()
 end
 
 -- The single save entry point - builds the full save file and writes it.
--- Wired as Feed's own save callback too (see Garden.load), so a food-side
--- mutation saves through here as well.
+-- Wired as Feed's and Treats' save callback too (see Garden.load), so their
+-- mutations save through here as well.
 function Garden.save()
 	lastUpdate = os.time()
 	Save.write({
 		garden = Garden.getSaveData(),
 		feed = Feed.getSaveData(),
+		treats = Treats.getSaveData(),
 	})
 end
 
@@ -319,8 +321,8 @@ function Garden.collectEgg(egg)
 end
 
 -- The toolbar's single placement entry point, dispatched by item type -
--- validity-checking and placement-commit both happen here (or, for food
--- types, inside Feed), never in the item's own file. Returns true/false.
+-- validity-checking and placement-commit both happen here (or inside Feed /
+-- Treats), never in the item's own file. Returns true/false.
 function Garden.tryPlace(itemType, x, y)
 	if itemType == "bed" then
 		local finalX, finalY = Garden.resolveBedPlacement(x, y)
@@ -330,7 +332,7 @@ function Garden.tryPlace(itemType, x, y)
 		Garden.placeBed(finalX, finalY)
 		return true
 	end
-	return Feed.tryPlace(itemType, x, y)
+	return Feed.tryPlace(itemType, x, y) or Treats.tryPlace(itemType, x, y)
 end
 
 -- Steps every chicken through the normal update path and collects its
@@ -498,8 +500,8 @@ function Garden.getSaveData()
 end
 
 -- saved: the full save file from src/systems/save.lua ({ garden = ..., feed
--- = ... }). Loads Feed first (so its items are visible on the first
--- decide), then this module's own beds/eggs/droppings/chickens. Spawns
+-- = ..., treats = ... }). Loads Feed and Treats first (so their items are
+-- visible on the first decide), then this module's own beds/eggs/droppings/chickens. Spawns
 -- exactly one chicken today regardless of how many are saved - the
 -- chickens array/save shape is ready for more, but nothing yet creates a
 -- second one (a small follow-up, not part of this refactor).
@@ -509,6 +511,8 @@ function Garden.load(saved)
 
 	Feed.load(saved.feed)
 	Feed.setSaveCallback(Garden.save)
+	Treats.load(saved.treats, saved.feed and saved.feed.treats)
+	Treats.setSaveCallback(Garden.save)
 
 	collectedCount = savedGarden.collectedCount or 0
 	lastUpdate = savedGarden.lastUpdate

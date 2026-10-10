@@ -11,7 +11,7 @@ local Color = require("src.util.color")
 local Toolbar = {}
 
 local SLOT_MARGIN = 4 * Constants.PIXEL_SCALE
-local SLOT_GAP = 4 * Constants.PIXEL_SCALE
+local SLOT_GAP = 3 * Constants.PIXEL_SCALE
 
 -- Same visual language as tooltip.lua's panel (fill/stroke/corner radius),
 -- duplicated here rather than shared - same convention as LONG_PRESS_TIME
@@ -27,7 +27,7 @@ local SLOT_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 -- The bottom band's height is derived from the play area's leftover space
 -- (ADR-0009), not fixed, so this is sized to comfortably fit within it on
 -- real devices rather than pinned a few units under a fixed band height.
-local SLOT_SIZE = 22 * Constants.PIXEL_SCALE
+local SLOT_SIZE = 19 * Constants.PIXEL_SCALE
 local SLOT_PADDING = 2 * Constants.PIXEL_SCALE
 
 -- ms; matches chicken.lua's/bed.lua's own long-press threshold - held here
@@ -40,9 +40,8 @@ local ITEMS = Catalog
 
 -- Preserve-aspect-ratio, centered ("contain") fit of (width, height) into a
 -- square box of availableSize. Used to derive a slot's resting-icon size
--- from an item's true world size (item.width/height) without adding any
--- new fields to item definitions - the dragged ghost still uses the item's
--- real width/height directly, unscaled.
+-- from the icon's native size (iconWidth/Height, else the item's world
+-- size) - the dragged ghost still uses the item's real width/height.
 local function containFit(width, height, availableSize)
 	local scale = math.min(availableSize / width, availableSize / height)
 	return width * scale, height * scale
@@ -70,7 +69,7 @@ function Toolbar.create()
 		-- in-world footprint. The dragged ghost below stays at full
 		-- item.width/height so the player can judge true placement fit.
 		local contentSize = SLOT_SIZE - SLOT_PADDING * 2
-		local restWidth, restHeight = containFit(item.width, item.height, contentSize)
+		local restWidth, restHeight = containFit(item.iconWidth or item.width, item.iconHeight or item.height, contentSize)
 		local icon = display.newImageRect(slotGroup, item.icon, restWidth, restHeight)
 		icon.x = SLOT_SIZE / 2
 		icon.y = SLOT_SIZE / 2
@@ -91,7 +90,7 @@ function Toolbar.create()
 
 		local function beginDrag(startX, startY)
 			icon.isVisible = false
-			ghost = display.newImageRect(item.icon, item.width, item.height)
+			ghost = display.newImageRect(item.ghost or item.icon, item.width, item.height)
 			ghost.alpha = 0.7
 			ghost.x = startX
 			ghost.y = startY

@@ -1,3 +1,7 @@
+---
+status: accepted (partially superseded by ADR-0018: mealworms moved from Feed to Treats)
+---
+
 # Feed owns the food side of the world, mirroring Coop's egg split
 
 ADR-0007 split egg laying in two: Gauges gates WHEN a hen lays, Coop decides WHERE the egg goes, since beds and eggs belong to the coop as a whole rather than to any one hen. Feeding needed the same split for the same reason - Gauges now decides WHETHER a chicken eats (the ceiling and chance rolls, ADR-0010), while a new sibling module, `src/feed.lua`, decides WHAT there is to eat: every placed seed patch, lettuce, and mealworm, none of which belong to any one chicken.

@@ -51,13 +51,33 @@ function SeedPatch.new(item)
 		table.insert(seeds, seed)
 	end
 
+	local function isSeedLeft(index)
+		return item.remaining / item.capacity > (index - 1) / COUNT
+	end
+
 	function item.updateVisual()
-		local fraction = item.remaining / item.capacity
 		for index, seed in ipairs(seeds) do
-			seed.isVisible = fraction > (index - 1) / COUNT
+			seed.isVisible = isSeedLeft(index)
 		end
 	end
 	item.updateVisual()
+
+	-- A random seed still showing; y is its bottom edge.
+	function item.pickPeckPoint()
+		local left = {}
+		for index = 1, #seeds do
+			if isSeedLeft(index) then
+				table.insert(left, index)
+			end
+		end
+		local index = left[math.random(#left)] or 1
+		local seed = seeds[index]
+		return { x = item.x + seed.x, y = item.y + seed.y + seedSize / 2, seedIndex = index }
+	end
+
+	function item.hasPeckPoint(point)
+		return isSeedLeft(point.seedIndex)
+	end
 
 	function item.destroyView()
 		group:removeSelf()

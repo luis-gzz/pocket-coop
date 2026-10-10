@@ -6,6 +6,7 @@ local Gauges = require("src.objects.chicken.gauges")
 local Clock = require("src.systems.clock")
 local Tuning = require("src.systems.tuning")
 local Feed = require("src.systems.feed")
+local Treats = require("src.systems.treats")
 local Tooltip = require("src.ui.tooltip")
 local Wiggle = require("src.util.wiggle")
 
@@ -44,10 +45,9 @@ local WANDER_MIN_RADIUS = 20
 local WANDER_MAX_RADIUS = 60
 local WANDER_SPEED = 40 -- points per second
 
--- How far past a food source's edge a chicken stands to eat, randomized so
--- repeat visits don't land on the same spot.
-local EAT_STANDOFF_MIN_JITTER = 2
-local EAT_STANDOFF_MAX_JITTER = 8
+-- Beak tip's forward offset from sprite center in the head-down eat frames.
+local BEAK_DX = 3.5 * DISPLAY_SCALE
+local PECK_PICK_ATTEMPTS = 5
 
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
@@ -55,6 +55,14 @@ local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
 
 -- How long a chicken plays the eat animation after finishing a mealworm.
 local TREAT_EAT_DURATION = 2 -- sim-seconds
+local BATHE_DURATION = 4 -- sim-seconds
+-- Where a bathing chicken's feet land, below the ash patch's center.
+local BATHE_FEET_DY = 2 * DISPLAY_SCALE
+
+-- Shimmy: gentler and quicker than the held wiggle; shift is in native px.
+local SHIMMY_ANGLE = 4
+local SHIMMY_SHIFT = 1
+local SHIMMY_STEP_TIME = 60
 
 local STATES -- assigned near the bottom, after the methods it calls exist
 
@@ -99,17 +107,68 @@ local function pickWanderDestination(chicken)
 	return x, y
 end
 
--- Picks a point just past a food item's edge, in a random direction, so the
--- chicken stands slightly to the side rather than on dead center (which
--- would obscure a small item like a mealworm from view entirely).
-local function pickEatingSpot(target)
-	local angle = math.random() * math.pi * 2
-	local jitter = EAT_STANDOFF_MIN_JITTER + math.random() * (EAT_STANDOFF_MAX_JITTER - EAT_STANDOFF_MIN_JITTER)
-	local radius = target.width / 2 + jitter
+-- Where to stand so the beak lands on a peck point, feet level with it:
+-- whichever side is the shorter walk and in bounds. Returns x, y, facing, point.
+local function pickStandSpot(chicken, target)
 	local bounds = getBounds()
-	local x = clamp(target.x + math.cos(angle) * radius, bounds.minX, bounds.maxX)
-	local y = clamp(target.y + math.sin(angle) * radius, bounds.minY, bounds.maxY)
-	return x, y
+	local fromX, fromY = chicken.view.x, chicken.view.y
+	local point
+	for _ = 1, PECK_PICK_ATTEMPTS do
+		point = target.pickPeckPoint()
+		local y = point.y - GROUND_OFFSET
+		local bestX, bestFacing, bestDistance
+		for _, facing in ipairs({ 1, -1 }) do
+			local x = point.x - facing * BEAK_DX
+			local distance = (x - fromX) ^ 2 + (y - fromY) ^ 2
+			local inBounds = x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY
+			if inBounds and (not bestDistance or distance < bestDistance) then
+				bestX, bestFacing, bestDistance = x, facing, distance
+			end
+		end
+		if bestX then
+			return bestX, y, bestFacing, point
+		end
+	end
+	local x = clamp(point.x - BEAK_DX, bounds.minX, bounds.maxX)
+	local y = clamp(point.y - GROUND_OFFSET, bounds.minY, bounds.maxY)
+	return x, y, (point.x < x) and -1 or 1, point
+end
+
+-- Walks to (destX, destY), then faces arriveFacing (if given) and calls onArrive.
+local function walkTo(chicken, destX, destY, arriveFacing, onArrive)
+	chicken:setAnimation("walk")
+	chicken:setFacing(destX < chicken.view.x and -1 or 1)
+
+	local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
+	local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
+
+	chicken.transitionHandle = transition.to(chicken.view, {
+		x = destX,
+		y = destY,
+		time = duration,
+		onComplete = function()
+			chicken.transitionHandle = nil
+			if arriveFacing then
+				chicken:setFacing(arriveFacing)
+			end
+			onArrive()
+		end,
+	})
+end
+
+-- Walks to a stand spot, then faces the peck point and calls onArrive.
+local function walkToPeck(chicken, target, onArrive)
+	local destX, destY, peckFacing, point = pickStandSpot(chicken, target)
+	chicken.peckPoint = point
+	walkTo(chicken, destX, destY, peckFacing, onArrive)
+end
+
+-- Walks onto an ash patch's center, feet just below it.
+local function walkToBath(chicken, target, onArrive)
+	local bounds = getBounds()
+	local destX = clamp(target.x, bounds.minX, bounds.maxX)
+	local destY = clamp(target.y + BATHE_FEET_DY - GROUND_OFFSET, bounds.minY, bounds.maxY)
+	walkTo(chicken, destX, destY, nil, onArrive)
 end
 
 -- Where a hungry chicken goes next (ADR-0015): "approach" (food cycle),
@@ -122,11 +181,11 @@ local function pickHungerState(chicken)
 	if mode == "food" then
 		local target = Feed.findNearestSource(chicken.view.x, chicken.view.y)
 		if target then
-			chicken:setFoodTarget(target)
+			chicken:setTarget(target)
 			return "approach"
 		end
 	elseif mode == "forage" then
-		chicken:setFoodTarget(nil)
+		chicken:setTarget(nil)
 		return "eat"
 	end
 	return nil
@@ -138,31 +197,36 @@ local function decideNextState(chicken)
 		return hungerState
 	end
 
-	chicken:setFoodTarget(nil)
+	chicken:setTarget(nil)
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
 end
 
 -- Ends a bout of eating. A food cycle that isn't finished yet (satiety still
 -- short of 100) takes a short sim-time break before the next bout.
 local function finishBout(chicken)
-	chicken:setFoodTarget(nil)
+	chicken:setTarget(nil)
 	if chicken.gauges:isHungry() then
 		chicken:startBoutBreak()
 	end
 	chicken.machine:changeState(decideNextState(chicken))
 end
 
--- Applies the treat's payoff and removes it - called once "eatTreat"'s
--- animation finishes, so the treat stays visible while being eaten.
+-- Applies the treat's payoff and removes it - called once "eatTreat" or
+-- "bathe" finishes, so the treat stays visible while in use.
 local function consumeTreat(chicken)
-	local target = chicken.foodTarget
-	chicken.gauges:applyTreat(target.fullness)
+	local target = chicken.target
+	if target.gauge == "satiety" then
+		chicken.gauges:applySatiety(target.amount)
+	else
+		chicken.gauges:applyCleanliness(target.amount)
+	end
 	chicken.gauges:applyHappinessBuff()
-	Feed.consumeTreat(target)
-	chicken:setFoodTarget(nil)
+	Treats.consume(target)
+	chicken:setTarget(nil)
 end
 
-local function buildSprite(path, numFrames, frameTime)
+-- loopCount: 0 (default) loops forever; 1 plays once and holds the last frame.
+local function buildSprite(path, numFrames, frameTime, loopCount)
 	local sheet = graphics.newImageSheet(path, {
 		width = SPRITE_SIZE,
 		height = SPRITE_SIZE,
@@ -170,7 +234,7 @@ local function buildSprite(path, numFrames, frameTime)
 		sheetContentWidth = SPRITE_SIZE * numFrames,
 		sheetContentHeight = SPRITE_SIZE,
 	})
-	local sequenceData = { name = "play", start = 1, count = numFrames, time = frameTime, loopCount = 0 }
+	local sequenceData = { name = "play", start = 1, count = numFrames, time = frameTime, loopCount = loopCount or 0 }
 	local sprite = display.newSprite(sheet, sequenceData)
 	sprite.isVisible = false
 	return sprite
@@ -231,6 +295,7 @@ function Chicken.new(saved, layCallbacks)
 		idle = buildSprite(SHEET_PATH .. "Idle/" .. COLOR .. "ChickenIdle-Sheet.png", 2, 600),
 		walk = buildSprite(SHEET_PATH .. "Walking/" .. COLOR .. "ChickenWalking-Sheet.png", 4, 500),
 		eat = buildSprite(SHEET_PATH .. "Eating/" .. COLOR .. "ChickenEating-Sheet.png", 6, 700),
+		sit = buildSprite(SHEET_PATH .. "Sitting/" .. COLOR .. "ChickenSitting-Sheet.png", 4, 400, 1),
 	}
 	for _, sprite in pairs(self.sprites) do
 		self.body:insert(sprite)
@@ -274,15 +339,24 @@ end
 -- again.
 function Chicken:cancelNesting()
 	self.layTarget = nil
+	self.layDeferred = false
 	self.gauges.pendingLay = false
+end
+
+function Chicken:hasTreat()
+	return self.target ~= nil and self.target.kind == "treat"
 end
 
 -- target: one of Garden.pickLayTarget's results. "immediate" lays right
 -- where the hen stands (no beds exist anywhere); anything else walks there
--- first via the "nest" state. Preempts whatever the hen was doing, the same
--- way a treat's claim does, and releases any food target/claim first.
+-- first via the "nest" state. Preempts whatever the hen was doing, except a
+-- claimed treat: the lay waits until it's finished (see update).
 function Chicken:beginNesting(target)
-	self:setFoodTarget(nil)
+	if self:hasTreat() then
+		self.layDeferred = true
+		return
+	end
+	self:setTarget(nil)
 	if target.kind == "immediate" then
 		self.layCallbacks.commitLay(target, self.view.x, self.view.y)
 		self.gauges:markLaid()
@@ -310,7 +384,7 @@ end
 -- Drops whatever the chicken was doing before offline catch-up (ADR-0016).
 -- Lay progress is kept, so a pending egg is counted by catch-up instead.
 function Chicken:resetForCatchUp()
-	self:setFoodTarget(nil)
+	self:setTarget(nil)
 	self:cancelNesting()
 	self:cancelBoutBreak()
 	self.gauges:resetHunger()
@@ -320,19 +394,20 @@ function Chicken:resetForCatchUp()
 end
 
 -- Releases a superseded treat's claim before adopting a new target.
-function Chicken:setFoodTarget(newTarget)
-	local old = self.foodTarget
+function Chicken:setTarget(newTarget)
+	local old = self.target
 	if old and old ~= newTarget and old.kind == "treat" then
-		Feed.releaseTreatClaim(old)
+		Treats.releaseClaim(old)
 	end
-	self.foodTarget = newTarget
+	self.target = newTarget
 end
 
 -- Gives up a treat the player just picked up; the treat alert re-claims
--- the nearest one once it's placed again.
-function Chicken:abandonFoodTarget()
-	self:setFoodTarget(nil)
-	if self.machine.name == "approach" or self.machine.name == "eatTreat" then
+-- one once it's placed again.
+function Chicken:abandonTarget()
+	self:setTarget(nil)
+	local state = self.machine.name
+	if state == "approach" or state == "eatTreat" or state == "bathe" then
 		self.machine:changeState(decideNextState(self))
 	end
 end
@@ -375,9 +450,9 @@ function Chicken:update(dt, dirt, hasSource)
 	)
 
 	-- Debits the food source by the satiety actually delivered this frame.
-	if self.machine.name == "eat" and self.foodTarget and delivered > 0 then
-		if not Feed.deplete(self.foodTarget, delivered) then
-			self:setFoodTarget(nil)
+	if self.machine.name == "eat" and self.target and delivered > 0 then
+		if not Feed.deplete(self.target, delivered) then
+			self:setTarget(nil)
 			self.machine:changeState(decideNextState(self))
 		end
 	end
@@ -386,10 +461,19 @@ function Chicken:update(dt, dirt, hasSource)
 		finishBout(self)
 	end
 
+	-- Hops to another seed when the pecked one runs out; same bout, still eating.
+	local target = self.target
+	if self.machine.name == "eat" and target and target.hasPeckPoint and not self.transitionHandle
+		and not target.hasPeckPoint(self.peckPoint) then
+		walkToPeck(self, target, function()
+			self:setAnimation("eat")
+		end)
+	end
+
 	-- Hunger is acted on here, not at the next re-decide, so high time scale
 	-- can't overshoot it. Interrupts idle/wander, or foraging once food appears.
 	local state = self.machine.name
-	local isForaging = state == "eat" and not self.foodTarget
+	local isForaging = state == "eat" and not self.target
 	local interruptible = state == "idle" or state == "wander"
 		or (isForaging and self.gauges:getHungerMode() == "food")
 	if interruptible then
@@ -400,15 +484,19 @@ function Chicken:update(dt, dirt, hasSource)
 	end
 
 	-- A treat alert is checked every frame and preempts whatever the
-	-- chicken is doing, except while held - including an in-progress nest
-	-- walk, so cancelNesting() releases that lay attempt the same way it
-	-- does for any other interruption.
-	if self.machine.name ~= "held" then
-		local claimed = Feed.claimTreatNear(self, self.view.x, self.view.y)
-		if claimed and claimed ~= self.foodTarget then
+	-- chicken is doing, including a nest walk - except while held or
+	-- already committed to a claimed treat (ADR-0018).
+	if self.machine.name ~= "held" and not self:hasTreat() then
+		local gauges = self.gauges
+		local claimed = Treats.claimNear(self, self.view.x, self.view.y, gauges.satiety, gauges.cleanliness)
+		if claimed then
 			self:cancelNesting()
-			self:setFoodTarget(claimed)
+			self:setTarget(claimed)
 			self.machine:changeState("approach")
+		elseif self.layDeferred then
+			-- The treat that held up a lay is done; go lay now.
+			self.layDeferred = false
+			self:beginNesting(self.layCallbacks.pickLayTarget(self.view.x, self.view.y))
 		end
 	end
 
@@ -544,6 +632,31 @@ function Chicken:stopWiggle()
 	self.wiggleHandle = nil
 end
 
+-- The bathe state's shimmy: rocks and nudges the body side to side until
+-- stopped. Body-local units, so the shift is in native pixels.
+function Chicken:startShimmy()
+	local direction = 1
+	local function step()
+		self.shimmyHandle = transition.to(self.body, {
+			rotation = SHIMMY_ANGLE * direction,
+			x = SHIMMY_SHIFT * direction,
+			time = SHIMMY_STEP_TIME,
+			onComplete = step,
+		})
+		direction = -direction
+	end
+	step()
+end
+
+function Chicken:stopShimmy()
+	if self.shimmyHandle then
+		transition.cancel(self.shimmyHandle)
+		self.shimmyHandle = nil
+	end
+	self.body.rotation = 0
+	self.body.x = 0
+end
+
 STATES = {
 	idle = {
 		enter = function(chicken)
@@ -559,41 +672,31 @@ STATES = {
 		end,
 	},
 
-	-- Walks to a claimed food item; arrival hands off to "eat" for a source
-	-- or "eatTreat" for a treat.
+	-- Walks to a claimed source or treat; arrival hands off to "eat" for a
+	-- source, "eatTreat" for a mealworm, or "bathe" for ash.
 	approach = {
 		enter = function(chicken)
-			local target = chicken.foodTarget
+			local target = chicken.target
 			if not target or target.removed then
-				chicken:setFoodTarget(nil)
+				chicken:setTarget(nil)
 				chicken.machine:changeState(decideNextState(chicken))
 				return
 			end
 
-			chicken:setAnimation("walk")
-
-			local destX, destY = pickEatingSpot(target)
-			chicken:setFacing(destX < chicken.view.x and -1 or 1)
-
-			local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
-			local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
-
-			chicken.transitionHandle = transition.to(chicken.view, {
-				x = destX,
-				y = destY,
-				time = duration,
-				onComplete = function()
-					chicken.transitionHandle = nil
-					if not chicken.foodTarget or chicken.foodTarget.removed then
-						chicken:setFoodTarget(nil)
-						chicken.machine:changeState(decideNextState(chicken))
-					elseif chicken.foodTarget.kind == "treat" then
-						chicken.machine:changeState("eatTreat")
-					else
-						chicken.machine:changeState("eat")
-					end
-				end,
-			})
+			local isBath = target.type == "ash"
+			local walk = isBath and walkToBath or walkToPeck
+			walk(chicken, target, function()
+				if not chicken.target or chicken.target.removed then
+					chicken:setTarget(nil)
+					chicken.machine:changeState(decideNextState(chicken))
+				elseif isBath then
+					chicken.machine:changeState("bathe")
+				elseif chicken.target.kind == "treat" then
+					chicken.machine:changeState("eatTreat")
+				else
+					chicken.machine:changeState("eat")
+				end
+			end)
 		end,
 		exit = function(chicken)
 			if chicken.transitionHandle then
@@ -627,7 +730,7 @@ STATES = {
 			end
 			-- A bed can sit right at the play area's edge, just outside the
 			-- chicken's own (slightly more inset) movement bounds - clamped
-			-- the same way pickEatingSpot/pickWanderDestination already are.
+			-- the same way pickStandSpot/pickWanderDestination already are.
 			local bounds = getBounds()
 			destX = clamp(destX, bounds.minX, bounds.maxX)
 			destY = clamp(destY, bounds.minY, bounds.maxY)
@@ -678,9 +781,13 @@ STATES = {
 	eat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
-			chicken.gauges:startBout(chicken.foodTarget ~= nil)
+			chicken.gauges:startBout(chicken.target ~= nil)
 		end,
 		exit = function(chicken)
+			if chicken.transitionHandle then
+				transition.cancel(chicken.transitionHandle)
+				chicken.transitionHandle = nil
+			end
 			chicken.gauges:stopEating()
 		end,
 	},
@@ -692,7 +799,7 @@ STATES = {
 			chicken:setAnimation("eat")
 			chicken.eatTreatTimerHandle = Clock.after(TREAT_EAT_DURATION, function()
 				chicken.eatTreatTimerHandle = nil
-				if chicken.foodTarget and not chicken.foodTarget.removed then
+				if chicken.target and not chicken.target.removed then
 					consumeTreat(chicken)
 				end
 				chicken.machine:changeState(decideNextState(chicken))
@@ -701,6 +808,27 @@ STATES = {
 		exit = function(chicken)
 			Clock.cancel(chicken.eatTreatTimerHandle)
 			chicken.eatTreatTimerHandle = nil
+		end,
+	},
+
+	-- Sits on claimed ash and shimmies for a fixed duration, then
+	-- consumes it. Picking the chicken up cancels with no payoff.
+	bathe = {
+		enter = function(chicken)
+			chicken:setAnimation("sit")
+			chicken:startShimmy()
+			chicken.batheTimerHandle = Clock.after(BATHE_DURATION, function()
+				chicken.batheTimerHandle = nil
+				if chicken.target and not chicken.target.removed then
+					consumeTreat(chicken)
+				end
+				chicken.machine:changeState(decideNextState(chicken))
+			end)
+		end,
+		exit = function(chicken)
+			Clock.cancel(chicken.batheTimerHandle)
+			chicken.batheTimerHandle = nil
+			chicken:stopShimmy()
 		end,
 	},
 
@@ -737,7 +865,7 @@ STATES = {
 			chicken:setAnimation("idle")
 			-- Being picked up releases any food target/claim and abandons an
 			-- in-progress nest walk.
-			chicken:setFoodTarget(nil)
+			chicken:setTarget(nil)
 			chicken:cancelNesting()
 			chicken:startWiggle()
 		end,

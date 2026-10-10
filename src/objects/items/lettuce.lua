@@ -12,6 +12,8 @@ local NATIVE_SIZE = 16
 -- Lettuce visibly shrinks toward this floor as it's eaten down, rather than
 -- vanishing all at once like the seed patch's scatter does.
 local MIN_SCALE = 0.4
+-- Share of the leaf's narrowest width a peck point may land in.
+local PECK_SPAN = 0.6
 
 Lettuce.WIDTH = NATIVE_SIZE * Constants.PIXEL_SCALE
 Lettuce.HEIGHT = Lettuce.WIDTH
@@ -37,6 +39,12 @@ function Lettuce.new(item)
 		sprite.yScale = scale
 	end
 	item.updateVisual()
+
+	-- Drawn from the fully-shrunk width, so the beak stays on the leaf.
+	function item.pickPeckPoint()
+		local span = width * MIN_SCALE * PECK_SPAN
+		return { x = item.x + (math.random() - 0.5) * span, y = sprite.y }
+	end
 
 	function item.destroyView()
 		sprite:removeSelf()
