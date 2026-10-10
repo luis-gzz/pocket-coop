@@ -1,8 +1,10 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
+local Layout = require("src.ui.layout")
 
--- A small popover anchored to a world point: a labeled, live-refreshed bar
--- per row, plus an optional active-buff icon row. Only one can be open at a time.
+-- A small popover with a live-refreshed bar per row. Either anchored beside a
+-- world point, or (content.corner) in a play area corner clear of it.
+-- Only one can be open at a time.
 local Tooltip = {}
 
 -- All spatial constants below are native * Constants.PIXEL_SCALE, like every
@@ -13,7 +15,6 @@ local BAR_WIDTH = 50 * Constants.PIXEL_SCALE
 local BAR_HEIGHT = 4 * Constants.PIXEL_SCALE
 local ROW_HEIGHT = 14 * Constants.PIXEL_SCALE
 local PANEL_PADDING = 5 * Constants.PIXEL_SCALE
-local PANEL_PADDING_TOP = 10 * Constants.PIXEL_SCALE
 local PANEL_PADDING_BOTTOM = 2.5 * Constants.PIXEL_SCALE
 local PANEL_CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
 local PANEL_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
@@ -29,35 +30,92 @@ local ANCHOR_GAP = 10 * Constants.PIXEL_SCALE -- vertical gap kept between the a
 -- detect whether the panel (after edge-clamping) would cover it.
 local ANCHOR_CLEARANCE = 8 * Constants.PIXEL_SCALE
 
--- Active-buff icon row, shown left-justified when content.buffs is given;
--- only currently-active buffs are drawn.
-local BUFF_ICON_MARGIN_TOP = 3.5 * Constants.PIXEL_SCALE
-local BUFF_ICON_GAP = 2 * Constants.PIXEL_SCALE
+-- Icon rows (row.icon) replace the text label with an icon left of the bar.
+local ICON_SIZE = 8 * Constants.PIXEL_SCALE
+local ICON_BAR_GAP = 3 * Constants.PIXEL_SCALE
+local ICON_ROW_GAP = 2 * Constants.PIXEL_SCALE
+local TITLE_GAP = 5 * Constants.PIXEL_SCALE -- between the title and the first row
+-- Awkward.ttf reserves extra room above its ink; pull the title up to offset it.
+local TITLE_TOP_TRIM = 3 * Constants.PIXEL_SCALE
 
 local current = nil -- { dismiss, group, refresh, content }
+local ignoringTap = false
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
 end
 
-local function makeBar(group, label, y)
+local function makeBar(group, x, barY)
+	local bg = display.newRect(group, x, barY, BAR_WIDTH, BAR_HEIGHT)
+	bg.anchorX = 0
+	bg:setFillColor(0.82, 0.82, 0.82)
+
+	local fill = display.newRect(group, x, barY, BAR_WIDTH, BAR_HEIGHT)
+	fill.anchorX = 0
+	fill:setFillColor(Color.hexToRGB(BAR_FILL_HEX))
+
+	return fill
+end
+
+local function makeLabeledBar(group, label, y)
 	local text = display.newText(group, label, 0, y, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	text.anchorX = 0
 	text.anchorY = 0
 	text.x = 0
 	text:setFillColor(0.2, 0.2, 0.2)
 
-	local barY = y + Constants.FONT_SIZE_SMALL + TEXT_BAR_GAP
+	return makeBar(group, 0, y + Constants.FONT_SIZE_SMALL + TEXT_BAR_GAP)
+end
 
-	local bg = display.newRect(group, 0, barY, BAR_WIDTH, BAR_HEIGHT)
-	bg.anchorX = 0
-	bg:setFillColor(0.82, 0.82, 0.82)
+local function makeIconBar(group, iconPath, y)
+	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
+	icon.anchorX = 0
+	icon.anchorY = 0
+	icon.x = 0
+	icon.y = y
 
-	local fill = display.newRect(group, 0, barY, BAR_WIDTH, BAR_HEIGHT)
-	fill.anchorX = 0
-	fill:setFillColor(Color.hexToRGB(BAR_FILL_HEX))
+	return makeBar(group, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2)
+end
 
-	return fill
+-- Centered above the anchor, flipping below it if edge-clamping would cover it.
+local function anchoredPosition(x, y, panelWidth, panelHeight)
+	local minX = display.screenOriginX + EDGE_MARGIN
+	local maxX = display.screenOriginX + display.actualContentWidth - panelWidth - EDGE_MARGIN
+	local minY = display.screenOriginY + EDGE_MARGIN
+	local maxY = display.screenOriginY + display.actualContentHeight - panelHeight - EDGE_MARGIN
+
+	local panelX = clamp(x - panelWidth / 2, minX, maxX)
+	local aboveY = clamp(y - panelHeight - ANCHOR_GAP, minY, maxY)
+	local anchorTop = y - ANCHOR_CLEARANCE
+	local anchorBottom = y + ANCHOR_CLEARANCE
+	local wouldCoverAnchor = aboveY < anchorBottom and (aboveY + panelHeight) > anchorTop
+	if wouldCoverAnchor then
+		return panelX, clamp(y + ANCHOR_GAP, minY, maxY)
+	end
+	return panelX, aboveY
+end
+
+-- Bottom-right of the play area, or top-right if the anchor would sit under
+-- the panel there. Picked once on open, never re-evaluated.
+local function cornerPosition(x, y, panelWidth, panelHeight)
+	local area = Layout.getPlayArea()
+	local panelX = area.maxX - panelWidth - EDGE_MARGIN
+	local bottomY = area.maxY - panelHeight - EDGE_MARGIN
+	local overlapsX = x + ANCHOR_CLEARANCE > panelX and x - ANCHOR_CLEARANCE < panelX + panelWidth
+	local overlapsY = y + ANCHOR_CLEARANCE > bottomY and y - ANCHOR_CLEARANCE < bottomY + panelHeight
+	if overlapsX and overlapsY then
+		return panelX, area.minY + EDGE_MARGIN
+	end
+	return panelX, bottomY
+end
+
+-- Shields the open tooltip from the tap Solar2D synthesizes for the touch
+-- currently ending; cleared a frame later so genuine taps still dismiss.
+function Tooltip.ignoreNextTap()
+	ignoringTap = true
+	timer.performWithDelay(1, function()
+		ignoringTap = false
+	end)
 end
 
 function Tooltip.hide()
@@ -73,7 +131,8 @@ function Tooltip.hide()
 	current = nil
 end
 
--- content: { x, y, rows, buffs?, onShow?, onHide? } - see chicken.lua/feed.lua for shape.
+-- content: { x, y, rows, title?, corner?, onShow?, onHide? }, where each row is
+-- { label | icon, getValue } - see chicken.lua/lettuce.lua for shape.
 function Tooltip.show(content)
 	Tooltip.hide()
 	if content.onShow then
@@ -98,90 +157,69 @@ function Tooltip.show(content)
 	timer.performWithDelay(1, function()
 		pcall(function()
 			dismiss:addEventListener("tap", function()
-				Tooltip.hide()
+				if not ignoringTap then
+					Tooltip.hide()
+				end
 				return true
 			end)
 		end)
 	end)
 
 	local rows = content.rows
-	local buffs = content.buffs or {}
-
-	local function anyBuffActive()
-		for _, buff in ipairs(buffs) do
-			if buff.isActive() then
-				return true
-			end
-		end
-		return false
-	end
-
-	-- No active buff means no reserved top strip at all.
-	local topPadding = anyBuffActive() and PANEL_PADDING_TOP or 0
-
-	local panelWidth = BAR_WIDTH + PANEL_PADDING * 2
-	local panelHeight = ROW_HEIGHT * #rows + topPadding + PANEL_PADDING + PANEL_PADDING_BOTTOM
 
 	local group = display.newGroup()
+	local contentGroup = display.newGroup()
+	contentGroup.x = PANEL_PADDING
 
-	-- Prefer centering above the anchor, clamped on all sides so the panel
-	-- always stays fully on screen.
-	local minX = display.screenOriginX + EDGE_MARGIN
-	local maxX = display.screenOriginX + display.actualContentWidth - panelWidth - EDGE_MARGIN
-	group.x = clamp(content.x - panelWidth / 2, minX, maxX)
-
-	local minY = display.screenOriginY + EDGE_MARGIN
-	local maxY = display.screenOriginY + display.actualContentHeight - panelHeight - EDGE_MARGIN
-
-	local aboveY = clamp(content.y - panelHeight - ANCHOR_GAP, minY, maxY)
-	-- If clamping would push the panel down far enough to cover the anchor,
-	-- flip to below it instead.
-	local anchorTop = content.y - ANCHOR_CLEARANCE
-	local anchorBottom = content.y + ANCHOR_CLEARANCE
-	local wouldCoverAnchor = aboveY < anchorBottom and (aboveY + panelHeight) > anchorTop
-	if wouldCoverAnchor then
-		group.y = clamp(content.y + ANCHOR_GAP, minY, maxY)
-	else
-		group.y = aboveY
+	local y = 0
+	local title
+	if content.title then
+		title = display.newText(contentGroup, content.title, 0, 0, Constants.FONT, Constants.FONT_SIZE_LARGE)
+		title:setFillColor(0.2, 0.2, 0.2)
+		title.anchorX = 0
+		title.anchorY = 0
+		title.y = -TITLE_TOP_TRIM
+		y = title.height - TITLE_TOP_TRIM + TITLE_GAP
 	end
+
+	local fills = {}
+	local hasIcons = false
+	for index, row in ipairs(rows) do
+		local fill
+		if row.icon then
+			hasIcons = true
+			fill = makeIconBar(contentGroup, row.icon, y)
+			y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
+		else
+			fill = makeLabeledBar(contentGroup, row.label, y)
+			y = y + ROW_HEIGHT
+		end
+		table.insert(fills, { fill = fill, getValue = row.getValue })
+	end
+
+	local contentWidth = BAR_WIDTH + (hasIcons and (ICON_SIZE + ICON_BAR_GAP) or 0)
+	local panelWidth = contentWidth + PANEL_PADDING * 2
+	local panelHeight
+	if hasIcons then
+		contentGroup.y = PANEL_PADDING
+		panelHeight = y + PANEL_PADDING * 2
+	else
+		-- Labeled rows carry their own space above the text and below the bar.
+		panelHeight = y + PANEL_PADDING + PANEL_PADDING_BOTTOM
+	end
+
+	local place = content.corner and cornerPosition or anchoredPosition
+	group.x, group.y = place(content.x, content.y, panelWidth, panelHeight)
 
 	local panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
 	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
 	panel.strokeWidth = PANEL_STROKE_WIDTH
 	panel:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))
-
-	-- Left-justified in the top padding strip, above the gauge rows. Each
-	-- icon starts hidden; refresh() below shows only the active ones.
-	local buffIcons = {}
-	local buffX = PANEL_PADDING
-	for _, buff in ipairs(buffs) do
-		local icon = display.newImageRect(group, buff.icon, buff.size, buff.size)
-		icon.anchorX = 0
-		icon.anchorY = 0
-		icon.x = buffX
-		icon.y = BUFF_ICON_MARGIN_TOP
-		icon.isVisible = false
-		table.insert(buffIcons, { view = icon, def = buff })
-		buffX = buffX + buff.size + BUFF_ICON_GAP
-	end
-
-	local contentGroup = display.newGroup()
 	group:insert(contentGroup)
-	contentGroup.x = PANEL_PADDING
-	contentGroup.y = topPadding
-
-	local fills = {}
-	for index, row in ipairs(rows) do
-		local fill = makeBar(contentGroup, row.label, (index - 1) * ROW_HEIGHT)
-		table.insert(fills, { fill = fill, getValue = row.getValue })
-	end
 
 	local function refresh()
 		for _, entry in ipairs(fills) do
 			entry.fill.width = math.max(1, BAR_WIDTH * (entry.getValue() / 100))
-		end
-		for _, entry in ipairs(buffIcons) do
-			entry.view.isVisible = entry.def.isActive()
 		end
 	end
 	refresh()

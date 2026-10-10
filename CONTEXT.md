@@ -38,6 +38,10 @@ The state a chicken is in while the player is dragging it. Entered by touch inpu
 **Wiggle**:
 The feedback animation a chicken plays continuously for as long as it's held. Stops and settles flat the moment it's released.
 
+**Selected**:
+A purely visual highlight (a ring under the chicken) shown while that chicken's tooltip is open. It has no effect on behavior — a selected chicken keeps doing whatever it was doing, and stays selected while picked up and dragged.
+_Avoid_: Frozen, focused
+
 **Satiety**:
 The gauge tracking how fed a chicken is (0–100, 100 is full). Falls steadily over real hours while the chicken isn't eating (more slowly while satisfied), rises while eating. Displayed to the player as "Fullness."
 _Avoid_: Hunger (inverted sense — high hunger would mean *unfed*, which is the opposite convention every gauge in this game uses)
@@ -62,6 +66,10 @@ The satiety level (re-picked each hunger cycle, always under the forage ceiling 
 **Cleanliness**:
 The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it gradually — mostly within a quarter hour, fully within the hour — rather than being restored directly by the act of cleaning. Time away recovers it the same way, so cleaning up and coming straight back doesn't return a spotless chicken.
 
+**Hydration**:
+The gauge tracking how watered a chicken is (0–100, 100 is fully watered). For now it always sits at 100 with no way to change it and no bearing on happiness; it exists so the tooltip shows it ahead of water being added.
+_Avoid_: Thirst (inverted sense, same reason as hunger)
+
 **Happiness**:
 A chicken's overall well-being, computed on read from satiety, cleanliness, and any active happiness buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
 _Avoid_: Mood, wellbeing
@@ -81,6 +89,10 @@ _Avoid_: Lay clock (retired — there is no longer a recurring roll)
 **Happiness buff**:
 A flat, temporary happiness boost with an expiry. Granting one again while it's still active is a no-op — it neither extends the remaining time nor stacks a second bonus. A mealworm treat is the only source so far.
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
+
+**Chicken tooltip**:
+The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. Food tooltips are a separate, simpler panel anchored beside their food item.
+_Avoid_: Popover, inspector, stats panel
 
 **Clock**:
 The single source of simulated time every chicken's gauges advance against, replacing each chicken computing its own frame delta independently. Also owns the debug time scale below, and every timer that affects a gauge (how long a chicken idles, the break between bouts), so the whole simulation speeds up together. Only cosmetic timing — walking and animation — stays in real time.
