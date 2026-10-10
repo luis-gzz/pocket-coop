@@ -77,6 +77,23 @@ local function makeIconBar(group, iconPath, y)
 	return makeBar(group, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2)
 end
 
+-- An icon followed by static text (a treat's payoff) instead of a bar.
+-- Returns the row's width.
+local function makeIconText(group, iconPath, text, y)
+	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
+	icon.anchorX = 0
+	icon.anchorY = 0
+	icon.x = 0
+	icon.y = y
+
+	local label = display.newText(
+		group, text, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2, Constants.FONT, Constants.FONT_SIZE_SMALL
+	)
+	label.anchorX = 0
+	label:setFillColor(0.2, 0.2, 0.2)
+	return ICON_SIZE + ICON_BAR_GAP + label.width
+end
+
 -- Centered above the anchor, flipping below it if edge-clamping would cover it.
 local function anchoredPosition(x, y, panelWidth, panelHeight)
 	local minX = display.screenOriginX + EDGE_MARGIN
@@ -132,7 +149,8 @@ function Tooltip.hide()
 end
 
 -- content: { x, y, rows, title?, corner?, onShow?, onHide? }, where each row is
--- { label | icon, getValue } - see chicken.lua/lettuce.lua for shape.
+-- { label | icon, getValue } or { icon, text } - see chicken.lua/lettuce.lua/
+-- mealworm.lua for shape.
 function Tooltip.show(content)
 	Tooltip.hide()
 	if content.onShow then
@@ -184,20 +202,28 @@ function Tooltip.show(content)
 
 	local fills = {}
 	local hasIcons = false
+	local contentWidth = title and title.width or 0
 	for index, row in ipairs(rows) do
-		local fill
-		if row.icon then
+		if row.text then
 			hasIcons = true
-			fill = makeIconBar(contentGroup, row.icon, y)
+			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y))
 			y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 		else
-			fill = makeLabeledBar(contentGroup, row.label, y)
-			y = y + ROW_HEIGHT
+			local fill
+			if row.icon then
+				hasIcons = true
+				fill = makeIconBar(contentGroup, row.icon, y)
+				y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
+				contentWidth = math.max(contentWidth, ICON_SIZE + ICON_BAR_GAP + BAR_WIDTH)
+			else
+				fill = makeLabeledBar(contentGroup, row.label, y)
+				y = y + ROW_HEIGHT
+				contentWidth = math.max(contentWidth, BAR_WIDTH)
+			end
+			table.insert(fills, { fill = fill, getValue = row.getValue })
 		end
-		table.insert(fills, { fill = fill, getValue = row.getValue })
 	end
 
-	local contentWidth = BAR_WIDTH + (hasIcons and (ICON_SIZE + ICON_BAR_GAP) or 0)
 	local panelWidth = contentWidth + PANEL_PADDING * 2
 	local panelHeight
 	if hasIcons then
