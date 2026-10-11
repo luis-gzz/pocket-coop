@@ -10,6 +10,7 @@ local Treats = require("src.systems.treats")
 local Tooltip = require("src.ui.tooltip")
 local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
+local Shadow = require("src.objects.shadow")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -20,7 +21,7 @@ local DISPLAY_SCALE = Constants.PIXEL_SCALE
 local SHEET_PATH = "assets/fauna/CHICKEN/"
 local COLOR = "LightBrown"
 
-local SHADOW_PATH = "assets/fauna/CHICKEN/chickenShadow.png"
+-- The selected ring's size, matching the shadow beneath it.
 local SHADOW_WIDTH, SHADOW_HEIGHT = 15, 5
 
 -- view.y is the sprite's vertical center; SPRITE_SIZE / 2 (scaled by
@@ -269,9 +270,8 @@ function Chicken.new(saved, layCallbacks)
 		return view.y + GROUND_OFFSET
 	end)
 
-	local shadow = display.newImageRect(self.view, SHADOW_PATH, SHADOW_WIDTH, SHADOW_HEIGHT)
-	shadow.x = 0
-	shadow.y = SPRITE_SIZE / 2
+	-- view is already scaled by DISPLAY_SCALE, so the shadow's unit is 1.
+	Shadow.new(self.view, SPRITE_SIZE, 1).y = SPRITE_SIZE / 2
 
 	-- Same spot as the shadow, rendered on top of it (inserted right after);
 	-- shown only while the chicken's tooltip is open.

@@ -1,5 +1,6 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
+local Shadow = require("src.objects.shadow")
 
 -- The visual, tappable side of a dropping record - Garden owns the data
 -- (garden-wide, not any one chicken's - see ADR-0012), this owns the
@@ -29,6 +30,7 @@ function Dropping.new(record, onClean)
 	local hitArea = display.newRect(self.image, 0, 0, WIDTH + TAP_PADDING * 2, HEIGHT + TAP_PADDING * 2)
 	hitArea.isVisible = false
 	hitArea.isHitTestable = true
+	Shadow.new(self.image, NATIVE_WIDTH).y = HEIGHT / 2
 	display.newImageRect(self.image, IMAGE_PATH, WIDTH, HEIGHT)
 	self.image.x = record.x
 	self.image.y = record.y

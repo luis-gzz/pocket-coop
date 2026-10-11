@@ -108,6 +108,10 @@ _Avoid_: Entity, game object (too generic — use world object specifically for 
 The fixed render layer beneath the main depth sort, holding hen beds, seed patches, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms, lettuce), no matter their relative position. Hen beds are depth-sorted against each other within this layer, so overlapping beds still order correctly; seed patches and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
 _Avoid_: Background layer, ground layer (Ground already owns that sense)
 
+**Shadow**:
+A soft oval a world object casts on the ground just below its base. Every world object casts one except *flat* ones lying on the ground (the seed patch, ash) — so any new world object that stands up should cast one. Eggs sitting in a hen bed share the bed's shadow. Unrelated to the floor layer: a hen bed is in the floor layer but isn't flat.
+_Avoid_: Drop shadow
+
 **Depth**:
 A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).
 _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the value it sorts by)

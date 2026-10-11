@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Tooltip = require("src.ui.tooltip")
+local Shadow = require("src.objects.shadow")
 
 -- The view side of a lettuce (CONTEXT.md's Food source). Feed owns the item
 -- record and placement rules; this owns the display object and attaches the
@@ -23,24 +24,26 @@ Lettuce.CAPACITY = 200 -- food units (src/systems/tuning.lua): ~2 fed-chicken-ho
 Lettuce.DESCRIPTOR = { icon = IMAGE_PATH, width = Lettuce.WIDTH, height = Lettuce.HEIGHT, type = "lettuce" }
 
 -- item: { kind="source", type="lettuce", x, y, width, height, capacity,
--- remaining } owned by Feed. A single sprite, anchored at its bottom edge so
--- shrinking reads as being eaten down. Depth-sorted by that bottom edge.
+-- remaining } owned by Feed. A group at the lettuce's bottom edge, so
+-- shrinking it (sprite and shadow) reads as being eaten down. Depth-sorted by that edge.
 function Lettuce.new(item)
 	local width = Lettuce.WIDTH
-	local sprite = display.newImageRect(IMAGE_PATH, width, Lettuce.HEIGHT)
-	YSort.getGroup():insert(sprite)
-	sprite.anchorY = 1
-	sprite.x = item.x
-	sprite.y = item.y + Lettuce.HEIGHT / 2
-	YSort.add(sprite, function(view)
-		return view.y - DEPTH_BIAS
+	local view = display.newGroup()
+	YSort.getGroup():insert(view)
+	view.x = item.x
+	view.y = item.y + Lettuce.HEIGHT / 2
+	YSort.add(view, function(object)
+		return object.y - DEPTH_BIAS
 	end)
+	Shadow.new(view, NATIVE_WIDTH)
+	local sprite = display.newImageRect(view, IMAGE_PATH, width, Lettuce.HEIGHT)
+	sprite.anchorY = 1
 
 	function item.updateVisual()
 		local fraction = item.remaining / item.capacity
 		local scale = MIN_SCALE + (1 - MIN_SCALE) * fraction
-		sprite.xScale = scale
-		sprite.yScale = scale
+		view.xScale = scale
+		view.yScale = scale
 	end
 	item.updateVisual()
 
@@ -48,12 +51,12 @@ function Lettuce.new(item)
 	-- the half nearer a chicken facing `facing` toward it, so it doesn't cover it.
 	function item.pickPeckPoint(facing)
 		local span = width * MIN_SCALE * PECK_SPAN
-		return { x = item.x - facing * math.random() * span / 2, y = sprite.y }
+		return { x = item.x - facing * math.random() * span / 2, y = view.y }
 	end
 
 	function item.destroyView()
-		YSort.remove(sprite)
-		sprite:removeSelf()
+		YSort.remove(view)
+		view:removeSelf()
 	end
 
 	sprite:addEventListener("tap", function()
@@ -68,7 +71,7 @@ function Lettuce.new(item)
 		return true
 	end)
 
-	return sprite
+	return view
 end
 
 return Lettuce

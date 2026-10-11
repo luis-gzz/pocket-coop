@@ -32,14 +32,18 @@ local TOOLTIP = {
 }
 
 function Mealworm.new(item, resolveDrop)
-	local sprite = TreatView.new(item, { image = IMAGE_PATH, depthBias = DEPTH_BIAS, tooltip = TOOLTIP }, resolveDrop)
+	local view = TreatView.new(
+		item,
+		{ image = IMAGE_PATH, depthBias = DEPTH_BIAS, shadow = NATIVE_WIDTH, tooltip = TOOLTIP },
+		resolveDrop
+	)
 
 	-- On the half nearer a chicken facing `facing` toward the worm, so it doesn't cover it.
 	function item.pickPeckPoint(facing)
 		return { x = item.x - facing * math.random() * item.width * PECK_SPAN / 2, y = item.y + item.height / 2 }
 	end
 
-	return sprite
+	return view
 end
 
 return Mealworm

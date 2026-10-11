@@ -1,5 +1,6 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
+local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Layout = require("src.ui.layout")
 
@@ -75,6 +76,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 		return view.y + Bed.HEIGHT / 2
 	end)
 
+	Shadow.new(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2
 	local nest = display.newImageRect(group, IMAGE_PATH, Bed.WIDTH, Bed.HEIGHT)
 	nest.x = 0
 	nest.y = 0
