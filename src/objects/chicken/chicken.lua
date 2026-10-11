@@ -11,6 +11,7 @@ local Tooltip = require("src.ui.tooltip")
 local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
 local Shadow = require("src.objects.shadow")
+local WanderRoute = require("src.util.wander_route")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -42,9 +43,12 @@ local HYDRATION_ICON = "assets/objects/water_drop.png"
 
 local IDLE_DWELL = { min = 2, max = 4 } -- sim-seconds
 local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not eating
-local WANDER_MIN_RADIUS = 20
-local WANDER_MAX_RADIUS = 60
 local WANDER_SPEED = 40 -- points per second
+-- Wander eases between this fraction of full speed and full over the ramp distance.
+local WANDER_RAMP_MIN = 0.3
+local WANDER_RAMP_DISTANCE = 10
+-- How far horizontal travel must point the other way before the sprite flips.
+local FACING_DEADZONE = 0.25
 
 -- Beak tip's forward offset from sprite center in the head-down eat frames.
 local BEAK_DX = 3.5 * DISPLAY_SCALE
@@ -82,30 +86,6 @@ local function getBounds()
 		minY = rect.minY + halfSize,
 		maxY = rect.maxY - halfSize,
 	}
-end
-
-local WANDER_PICK_ATTEMPTS = 10
-
--- Retries rather than clamps: clamping an off-area point pins it to the edge,
--- so a chicken already there walks in place. Falls back to heading inward.
-local function pickWanderDestination(chicken)
-	local bounds = getBounds()
-	local fromX, fromY = chicken.view.x, chicken.view.y
-	for _ = 1, WANDER_PICK_ATTEMPTS do
-		local angle = math.random() * math.pi * 2
-		local radius = math.random(WANDER_MIN_RADIUS, WANDER_MAX_RADIUS)
-		local x = fromX + math.cos(angle) * radius
-		local y = fromY + math.sin(angle) * radius
-		if x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY then
-			return x, y
-		end
-	end
-
-	local angle = math.atan2((bounds.minY + bounds.maxY) / 2 - fromY, (bounds.minX + bounds.maxX) / 2 - fromX)
-	local radius = math.random(WANDER_MIN_RADIUS, WANDER_MAX_RADIUS)
-	local x = clamp(fromX + math.cos(angle) * radius, bounds.minX, bounds.maxX)
-	local y = clamp(fromY + math.sin(angle) * radius, bounds.minY, bounds.maxY)
-	return x, y
 end
 
 -- Where to stand so the beak lands on a peck point, feet level with it:
@@ -201,6 +181,60 @@ local function decideNextState(chicken)
 
 	chicken:setTarget(nil)
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
+end
+
+-- Picks the next state at a wander route's end: hunger first, then the
+-- idle/wander roll made when the route was planned.
+local function finishWander(chicken)
+	local route = chicken.wanderRoute
+	local hungerState = pickHungerState(chicken)
+	if hungerState then
+		chicken.machine:changeState(hungerState)
+	elseif route.chains then
+		chicken.continueHeading = route.endHeading
+		chicken.machine:changeState("wander")
+	else
+		chicken.machine:changeState("idle")
+	end
+end
+
+-- Advances along the wander route by real time, easing at whichever ends stop.
+local function stepWander(chicken, realDt)
+	local route = chicken.wanderRoute
+	local ramp = 1
+	if route.easeIn then
+		ramp = math.min(ramp, chicken.wanderDistance / WANDER_RAMP_DISTANCE)
+	end
+	if route.easeOut then
+		ramp = math.min(ramp, (route.total - chicken.wanderDistance) / WANDER_RAMP_DISTANCE)
+	end
+	ramp = WANDER_RAMP_MIN + (1 - WANDER_RAMP_MIN) * clamp(ramp, 0, 1)
+
+	chicken.wanderDistance = math.min(route.total, chicken.wanderDistance + WANDER_SPEED * ramp * realDt)
+	local x, y, dirX = WanderRoute.sample(route, chicken.wanderDistance)
+	chicken.view.x, chicken.view.y = x, y
+	if math.abs(dirX) > FACING_DEADZONE then
+		chicken:setFacing(dirX < 0 and -1 or 1)
+	end
+
+	if chicken.wanderDistance >= route.total then
+		finishWander(chicken)
+	end
+end
+
+-- Thin debug-only line along a wander route.
+local function drawWanderRoute(route)
+	local xs, ys = route.xs, route.ys
+	if #xs < 2 then
+		return nil
+	end
+	local line = display.newLine(YSort.getGroup(), xs[1], ys[1], xs[2], ys[2])
+	for i = 3, #xs do
+		line:append(xs[i], ys[i])
+	end
+	line.strokeWidth = 1
+	line:setStrokeColor(1, 0.2, 0.2, 0.8)
+	return line
 end
 
 -- Ends a bout of eating. A food cycle that isn't finished yet (satiety still
@@ -440,6 +474,10 @@ end
 -- lay happened this call, so Garden can create their views / hatch the egg -
 -- both are Garden-owned concerns now, not this chicken's.
 function Chicken:update(dt, dirt, hasSource)
+	if self.machine.name == "wander" then
+		stepWander(self, Clock.getRawDt())
+	end
+
 	-- Keeps the hit target glued to the chicken and always frontmost.
 	self.hitArea.x = self.view.x
 	self.hitArea.y = self.view.y
@@ -735,7 +773,7 @@ STATES = {
 			end
 			-- A bed can sit right at the play area's edge, just outside the
 			-- chicken's own (slightly more inset) movement bounds - clamped
-			-- the same way pickStandSpot/pickWanderDestination already are.
+			-- the same way pickStandSpot already is.
 			local bounds = getBounds()
 			destX = clamp(destX, bounds.minX, bounds.maxX)
 			destY = clamp(destY, bounds.minY, bounds.maxY)
@@ -837,30 +875,32 @@ STATES = {
 		end,
 	},
 
+	-- Follows a planned wander route (stepped in update). Rolls up front
+	-- whether another wander follows, so a chained route needn't slow down.
 	wander = {
 		enter = function(chicken)
-			chicken:setAnimation("walk")
+			local heading = chicken.continueHeading
+			chicken.continueHeading = nil
+			-- A chained wander keeps the walk cycle going rather than restarting it.
+			if chicken.activeSprite ~= chicken.sprites.walk then
+				chicken:setAnimation("walk")
+			end
 
-			local destX, destY = pickWanderDestination(chicken)
-			chicken:setFacing(destX < chicken.view.x and -1 or 1)
-
-			local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
-			local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
-
-			chicken.transitionHandle = transition.to(chicken.view, {
-				x = destX,
-				y = destY,
-				time = duration,
-				onComplete = function()
-					chicken.transitionHandle = nil
-					chicken.machine:changeState(decideNextState(chicken))
-				end,
-			})
+			local route = WanderRoute.build(chicken.view.x, chicken.view.y, heading, getBounds())
+			route.chains = math.random() >= IDLE_WANDER_SPLIT
+			route.easeIn = not route.keptHeading
+			route.easeOut = not route.chains
+			chicken.wanderRoute = route
+			chicken.wanderDistance = 0
+			if DEBUG_MODE then
+				chicken.wanderLine = drawWanderRoute(route)
+			end
 		end,
 		exit = function(chicken)
-			if chicken.transitionHandle then
-				transition.cancel(chicken.transitionHandle)
-				chicken.transitionHandle = nil
+			chicken.wanderRoute = nil
+			if chicken.wanderLine then
+				chicken.wanderLine:removeSelf()
+				chicken.wanderLine = nil
 			end
 		end,
 	},

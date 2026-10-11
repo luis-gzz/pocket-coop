@@ -10,6 +10,7 @@ Clock.PRESETS = { 1, 10, 60, 300 }
 local timeScale = 1
 local now = 0
 local dt = 0
+local rawDt = 0
 
 -- Pending sim-time timers: { fireAt, fn, cancelled }.
 local timers = {}
@@ -26,8 +27,9 @@ local MAX_RAW_DT = 0.25 -- seconds
 
 -- Called once per frame by garden.lua's own enterFrame loop. Clamps rawDt,
 -- applies the time-scale multiplier, and accumulates the shared `now`.
-function Clock.advance(rawDt)
-	dt = math.min(rawDt, MAX_RAW_DT) * timeScale
+function Clock.advance(frameDt)
+	rawDt = math.min(frameDt, MAX_RAW_DT)
+	dt = rawDt * timeScale
 	now = now + dt
 
 	-- Swapped out first so a callback scheduling a new timer lands in the
@@ -63,6 +65,11 @@ end
 -- This frame's already-scaled dt, valid until the next advance() call.
 function Clock.getDt()
 	return dt
+end
+
+-- This frame's clamped real dt, unscaled - for cosmetic motion like walking.
+function Clock.getRawDt()
+	return rawDt
 end
 
 -- Total elapsed sim-seconds since load.
