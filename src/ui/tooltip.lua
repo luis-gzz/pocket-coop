@@ -38,6 +38,9 @@ local TITLE_GAP = 5 * Constants.PIXEL_SCALE -- between the title and the first r
 
 local current = nil -- { dismiss, group, refresh, content }
 local ignoringTap = false
+-- Source of a tooltip the current tap just dismissed, so tapping that same
+-- source toggles it closed instead of reopening it. Cleared a frame later.
+local dismissedSource = nil
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
@@ -159,10 +162,16 @@ function Tooltip.hide()
 	current = nil
 end
 
--- content: { x, y, rows, title?, corner?, onShow?, onHide? }, where each row is
+-- content: { x, y, rows, title?, corner?, source?, onShow?, onHide? }, where
+-- source (the chicken/item it describes) makes tapping it again close it. Each row is
 -- { label | icon, getValue } or { icon, text } - see chicken.lua/lettuce.lua/
 -- mealworm.lua for shape.
 function Tooltip.show(content)
+	local source = content.source
+	if source and ((current and current.content.source == source) or dismissedSource == source) then
+		Tooltip.hide()
+		return
+	end
 	Tooltip.hide()
 	if content.onShow then
 		content.onShow()
@@ -179,6 +188,7 @@ function Tooltip.show(content)
 		display.actualContentHeight
 	)
 	dismiss:setFillColor(0, 0, 0, 0.01)
+	local panel -- created below, once its size is known
 	-- The tap that opened this tooltip also generates Solar2D's own
 	-- synthesized "tap" event, dispatched to whatever's on top - which would
 	-- be this brand-new rect, instantly closing what we just opened. Attach
@@ -186,9 +196,20 @@ function Tooltip.show(content)
 	timer.performWithDelay(1, function()
 		pcall(function()
 			dismiss:addEventListener("tap", function()
-				if not ignoringTap then
-					Tooltip.hide()
+				if ignoringTap then
+					return true
 				end
+				-- Let the tap carry on to whatever's beneath, so it acts in the same tap.
+				dismissedSource = current and current.content.source
+				timer.performWithDelay(1, function()
+					dismissedSource = nil
+				end)
+				Tooltip.hide()
+				return false
+			end)
+			-- A tap on the panel only closes it, never reaching what's hidden beneath.
+			panel:addEventListener("tap", function()
+				Tooltip.hide()
 				return true
 			end)
 		end)
@@ -240,7 +261,7 @@ function Tooltip.show(content)
 	local place = content.corner and cornerPosition or anchoredPosition
 	group.x, group.y = place(content.x, content.y, panelWidth, panelHeight)
 
-	local panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
+	panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
 	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
 	panel.strokeWidth = PANEL_STROKE_WIDTH
 	panel:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))

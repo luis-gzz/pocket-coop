@@ -58,6 +58,7 @@ function Lettuce.new(item)
 
 	sprite:addEventListener("tap", function()
 		Tooltip.show({
+			source = item,
 			x = item.x,
 			y = item.y,
 			rows = {

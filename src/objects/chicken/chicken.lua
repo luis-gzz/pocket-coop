@@ -585,6 +585,7 @@ function Chicken:setupTouch()
 							y = self.view.y,
 							corner = true,
 							title = NAME,
+							source = self,
 							onShow = function()
 								self:setSelected(true)
 							end,

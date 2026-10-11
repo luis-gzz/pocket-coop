@@ -88,6 +88,7 @@ function SeedPatch.new(item)
 	hitArea:setFillColor(0, 0, 0, 0.01)
 	hitArea:addEventListener("tap", function()
 		Tooltip.show({
+			source = item,
 			x = item.x,
 			y = item.y,
 			rows = {

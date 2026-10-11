@@ -70,6 +70,7 @@ function TreatView.new(item, opts, resolveDrop)
 			content[key] = value
 		end
 		content.x, content.y = item.x, item.y
+		content.source = item
 		Tooltip.show(content)
 	end
 
@@ -137,7 +138,7 @@ function TreatView.new(item, opts, resolveDrop)
 	sprite:addEventListener("touch", onTouch)
 
 	-- Solar2D hit-tests "tap" separately from "touch" - this blocks a tap
-	-- falling through to the tooltip's dismiss target underneath.
+	-- falling through to what's underneath.
 	sprite:addEventListener("tap", function()
 		return true
 	end)
