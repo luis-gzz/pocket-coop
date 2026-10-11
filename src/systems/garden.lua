@@ -452,6 +452,14 @@ function Garden.returnAfter(elapsedSeconds)
 	return true
 end
 
+-- Debug: drops every chicken's satiety to 0; hunger picks it up next frame.
+function Garden.debugEmptyFullness()
+	for _, chicken in ipairs(chickens) do
+		chicken.gauges.satiety = 0
+	end
+	Garden.save()
+end
+
 -- returnAfter for the time since the last save. Returns whether a full pass
 -- ran and the real (uncapped) time away.
 function Garden.returnToNow()
