@@ -76,7 +76,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 		return view.y + Bed.HEIGHT / 2
 	end)
 
-	Shadow.new(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2
+	Shadow.newOval(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2 - Constants.PIXEL_SCALE
 	local nest = display.newImageRect(group, IMAGE_PATH, Bed.WIDTH, Bed.HEIGHT)
 	nest.x = 0
 	nest.y = 0

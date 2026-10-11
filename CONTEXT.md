@@ -109,7 +109,7 @@ The fixed render layer beneath the main depth sort, holding hen beds, seed patch
 _Avoid_: Background layer, ground layer (Ground already owns that sense)
 
 **Shadow**:
-A soft oval a world object casts on the ground just below its base. Every world object casts one except *flat* ones lying on the ground (the seed patch, ash) — so any new world object that stands up should cast one. Eggs sitting in a hen bed share the bed's shadow. Unrelated to the floor layer: a hen bed is in the floor layer but isn't flat.
+A soft patch of shade a world object casts on the ground at its base. Every world object casts one except *flat* ones lying on the ground (the seed patch, ash) — so any new world object that stands up should cast one. Eggs sitting in a hen bed share the bed's shadow. Unrelated to the floor layer: a hen bed is in the floor layer but isn't flat.
 _Avoid_: Drop shadow
 
 **Depth**:

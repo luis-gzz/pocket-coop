@@ -1,8 +1,8 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 
--- The oval every non-flat world object casts (CONTEXT.md's Shadow). A new
--- world object that stands up off the ground should add one with Shadow.new.
+-- The shadow every non-flat world object casts (CONTEXT.md's Shadow): a rounded
+-- rect for items, an oval for the chicken and bed. New standing objects should add one.
 local Shadow = {}
 
 local FILL_HEX = "212123"
@@ -18,25 +18,37 @@ local function rowWidth(exact, width)
 	return math.max(1, rounded)
 end
 
--- A pixel-crisp oval sized from the caster's native width, centered on the
--- group's origin - place it at the caster's bottom-center. unit: points per native pixel
--- (default PIXEL_SCALE; 1 inside an already-scaled group).
-function Shadow.new(parent, casterNativeWidth, unit)
-	unit = unit or Constants.PIXEL_SCALE
-	local width = casterNativeWidth - 1
-	local height = math.max(3, math.floor(width / 3 + 0.5))
-
+-- One rect per row; spans[i] is row i's width in native px. Centered on the
+-- group's origin - place it at the caster's bottom-center.
+local function newRows(parent, spans, unit)
 	local group = display.newGroup()
 	parent:insert(group)
 	group.alpha = ALPHA
 	local r, g, b = Color.hexToRGB(FILL_HEX)
-	for row = 0, height - 1 do
-		local t = (row + 0.5 - height / 2) / (height / 2)
-		local span = rowWidth(width * math.sqrt(1 - t * t), width)
-		local rect = display.newRect(group, 0, (row + 0.5 - height / 2) * unit, span * unit, unit)
-		rect:setFillColor(r, g, b)
+	for row, span in ipairs(spans) do
+		local y = (row - 0.5 - #spans / 2) * unit
+		display.newRect(group, 0, y, span * unit, unit):setFillColor(r, g, b)
 	end
 	return group
+end
+
+-- A 4px-high rounded rect sized from the caster's native width. unit: points
+-- per native pixel (default PIXEL_SCALE; 1 inside an already-scaled group).
+function Shadow.new(parent, casterNativeWidth, unit)
+	local width = math.max(2, casterNativeWidth)
+	return newRows(parent, { width - 2, width, width, width - 2 }, unit or Constants.PIXEL_SCALE)
+end
+
+-- The pixel-crisp oval (chicken, bed); same arguments as Shadow.new.
+function Shadow.newOval(parent, casterNativeWidth, unit)
+	local width = casterNativeWidth - 1
+	local height = math.max(3, math.floor(width / 3 + 0.5))
+	local spans = {}
+	for row = 0, height - 1 do
+		local t = (row + 0.5 - height / 2) / (height / 2)
+		spans[#spans + 1] = rowWidth(width * math.sqrt(1 - t * t), width)
+	end
+	return newRows(parent, spans, unit or Constants.PIXEL_SCALE)
 end
 
 return Shadow

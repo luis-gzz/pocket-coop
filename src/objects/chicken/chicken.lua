@@ -271,7 +271,7 @@ function Chicken.new(saved, layCallbacks)
 	end)
 
 	-- view is already scaled by DISPLAY_SCALE, so the shadow's unit is 1.
-	Shadow.new(self.view, SPRITE_SIZE, 1).y = SPRITE_SIZE / 2
+	Shadow.newOval(self.view, SPRITE_SIZE, 1).y = SPRITE_SIZE / 2
 
 	-- Same spot as the shadow, rendered on top of it (inserted right after);
 	-- shown only while the chicken's tooltip is open.
