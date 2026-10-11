@@ -14,6 +14,8 @@ local ICON_NATIVE_SIZE = 20 -- also the seed patch's collision/containment box
 local SPRITE_NATIVE_SIZE = 2
 local SCATTER_RADIUS_NATIVE = 10
 local COUNT = 10
+-- A seed this close to the one just finished is pecked without moving.
+local NEARBY_RADIUS_NATIVE = 3
 
 SeedPatch.WIDTH = ICON_NATIVE_SIZE * Constants.PIXEL_SCALE
 SeedPatch.HEIGHT = SeedPatch.WIDTH
@@ -51,32 +53,62 @@ function SeedPatch.new(item)
 		table.insert(seeds, seed)
 	end
 
-	local function isSeedLeft(index)
-		return item.remaining / item.capacity > (index - 1) / COUNT
+	-- Seeds vanish from the end of the list first.
+	local function countLeft()
+		local left = 0
+		for index = 1, #seeds do
+			if item.remaining / item.capacity > (index - 1) / COUNT then
+				left = index
+			end
+		end
+		return left
 	end
 
 	function item.updateVisual()
+		local left = countLeft()
 		for index, seed in ipairs(seeds) do
-			seed.isVisible = isSeedLeft(index)
+			seed.isVisible = index <= left
 		end
 	end
 	item.updateVisual()
 
+	local function peckPointFor(seed)
+		return { x = item.x + seed.x, y = item.y + seed.y + seedSize / 2, seed = seed }
+	end
+
 	-- A random seed still showing; y is its bottom edge.
 	function item.pickPeckPoint()
-		local left = {}
-		for index = 1, #seeds do
-			if isSeedLeft(index) then
-				table.insert(left, index)
+		return peckPointFor(seeds[math.random(math.max(1, countLeft()))])
+	end
+
+	-- The nearest showing seed within reach of point, or nil.
+	function item.findNearbyPeckPoint(point)
+		local nearest, nearestDistance = nil, (NEARBY_RADIUS_NATIVE * Constants.PIXEL_SCALE) ^ 2
+		for index = 1, countLeft() do
+			local candidate = peckPointFor(seeds[index])
+			local distance = (candidate.x - point.x) ^ 2 + (candidate.y - point.y) ^ 2
+			if candidate.seed ~= point.seed and distance <= nearestDistance then
+				nearest, nearestDistance = candidate, distance
 			end
 		end
-		local index = left[math.random(#left)] or 1
-		local seed = seeds[index]
-		return { x = item.x + seed.x, y = item.y + seed.y + seedSize / 2, seedIndex = index }
+		return nearest
+	end
+
+	-- Makes the pecked seed the next to vanish. Offsets swap too, so the
+	-- order saves with the patch.
+	function item.claimPeckPoint(point)
+		local last = countLeft()
+		for index = 1, last do
+			if seeds[index] == point.seed then
+				seeds[index], seeds[last] = seeds[last], seeds[index]
+				item.offsets[index], item.offsets[last] = item.offsets[last], item.offsets[index]
+				return
+			end
+		end
 	end
 
 	function item.hasPeckPoint(point)
-		return isSeedLeft(point.seedIndex)
+		return point.seed.isVisible
 	end
 
 	function item.destroyView()

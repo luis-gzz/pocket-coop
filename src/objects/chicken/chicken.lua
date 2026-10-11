@@ -142,6 +142,9 @@ end
 local function walkToPeck(chicken, target, onArrive)
 	local destX, destY, peckFacing, point = pickStandSpot(chicken, target)
 	chicken.peckPoint = point
+	if target.claimPeckPoint then
+		target.claimPeckPoint(point)
+	end
 	walkTo(chicken, destX, destY, peckFacing, onArrive)
 end
 
@@ -500,13 +503,22 @@ function Chicken:update(dt, dirt, hasSource)
 		finishBout(self)
 	end
 
-	-- Hops to another seed when the pecked one runs out; same bout, still eating.
+	-- When the pecked seed runs out, pecks a nearby one in place, else hops
+	-- to another - same bout, paused until it arrives so no seed goes mid-walk.
 	local target = self.target
 	if self.machine.name == "eat" and target and target.hasPeckPoint and not self.transitionHandle
 		and not target.hasPeckPoint(self.peckPoint) then
-		walkToPeck(self, target, function()
-			self:setAnimation("eat")
-		end)
+		local nearby = target.findNearbyPeckPoint and target.findNearbyPeckPoint(self.peckPoint)
+		if nearby then
+			self.peckPoint = nearby
+			target.claimPeckPoint(nearby)
+		else
+			self.gauges:setEatingPaused(true)
+			walkToPeck(self, target, function()
+				self.gauges:setEatingPaused(false)
+				self:setAnimation("eat")
+			end)
+		end
 	end
 
 	-- Hunger is acted on here, not at the next re-decide, so high time scale

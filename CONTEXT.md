@@ -162,7 +162,7 @@ Something the player places in the play area for chickens to repeatedly eat from
 _Avoid_: Feeder (implies a container), station, plate, food item (retired: one-use items left Feed and became treats)
 
 **Seed patch**:
-One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed, hopping to another still-showing seed (within the same bout) when its own disappears.
+One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed — the seed it pecks is the next to disappear — hopping to another still-showing seed (within the same bout) when its own disappears — unless one sits within a few pixels, which it pecks without moving. It doesn't eat while hopping: satiety and the patch both hold until it pecks again.
 _Avoid_: Seeds, seed pile (the patch is one thing, not ten)
 
 **Capacity**:
