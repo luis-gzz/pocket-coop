@@ -61,6 +61,14 @@ function Gauges.layRatePerHour(happiness)
 	return Tuning.LAY_BASE_PER_HOUR * (Tuning.LAY_MIN_RATE_FACTOR + (1 - Tuning.LAY_MIN_RATE_FACTOR) * t)
 end
 
+-- "sad" while she can't lay, "meh" at a reduced lay rate, "happy" at the full rate.
+function Gauges.happinessFace(happiness)
+	if happiness < Tuning.LAY_HAPPINESS_GATE then
+		return "sad"
+	end
+	return happiness >= Tuning.LAY_FULL_RATE_HAPPINESS and "happy" or "meh"
+end
+
 -- saved: an optional table to resume from. Timestamps use the internal
 -- `now`, which offline catch-up advances by the time away (ADR-0016).
 function Gauges.new(saved)

@@ -66,24 +66,37 @@ local function makeLabeledBar(group, label, y)
 	return makeBar(group, 0, barTop + BAR_HEIGHT / 2), barTop + BAR_HEIGHT - y
 end
 
-local function makeIconBar(group, iconPath, y)
-	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
-	icon.anchorX = 0
-	icon.anchorY = 0
-	icon.x = 0
-	icon.y = y
+-- icon: an image path, or a sheet frame { sheet, frameCount, frame | getFrame }.
+-- A getFrame icon is added to liveIcons for refresh to update.
+local function makeIcon(group, icon, y, liveIcons)
+	local image
+	if type(icon) == "string" then
+		image = display.newImageRect(group, icon, ICON_SIZE, ICON_SIZE)
+	else
+		image = display.newSprite(group, icon.sheet, { start = 1, count = icon.frameCount })
+		image:setFrame(icon.frame or icon.getFrame())
+		image.xScale = ICON_SIZE / image.width
+		image.yScale = ICON_SIZE / image.height
+		if icon.getFrame then
+			table.insert(liveIcons, { sprite = image, getFrame = icon.getFrame })
+		end
+	end
+	image.anchorX = 0
+	image.anchorY = 0
+	image.x = 0
+	image.y = y
+end
+
+local function makeIconBar(group, icon, y, liveIcons)
+	makeIcon(group, icon, y, liveIcons)
 
 	return makeBar(group, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2)
 end
 
 -- An icon followed by static text (a treat's payoff) instead of a bar.
 -- Returns the row's width.
-local function makeIconText(group, iconPath, text, y)
-	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
-	icon.anchorX = 0
-	icon.anchorY = 0
-	icon.x = 0
-	icon.y = y
+local function makeIconText(group, icon, text, y, liveIcons)
+	makeIcon(group, icon, y, liveIcons)
 
 	local label = display.newText(group, text, ICON_SIZE + ICON_BAR_GAP, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	label.anchorX = 0
@@ -199,15 +212,16 @@ function Tooltip.show(content)
 	end
 
 	local fills = {}
+	local liveIcons = {}
 	local contentWidth = title and title.width or 0
 	for index, row in ipairs(rows) do
 		if row.text then
-			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y))
+			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y, liveIcons))
 			y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 		else
 			local fill
 			if row.icon then
-				fill = makeIconBar(contentGroup, row.icon, y)
+				fill = makeIconBar(contentGroup, row.icon, y, liveIcons)
 				y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 				contentWidth = math.max(contentWidth, ICON_SIZE + ICON_BAR_GAP + BAR_WIDTH)
 			else
@@ -235,6 +249,12 @@ function Tooltip.show(content)
 	local function refresh()
 		for _, entry in ipairs(fills) do
 			entry.fill.width = math.max(1, BAR_WIDTH * (entry.getValue() / 100))
+		end
+		for _, entry in ipairs(liveIcons) do
+			local frame = entry.getFrame()
+			if entry.sprite.frame ~= frame then
+				entry.sprite:setFrame(frame)
+			end
 		end
 	end
 	refresh()

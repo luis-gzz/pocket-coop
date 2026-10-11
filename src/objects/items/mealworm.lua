@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local TreatView = require("src.objects.items.treat_view")
 local Gauges = require("src.objects.chicken.gauges")
+local HappinessIcon = require("src.ui.happiness_icon")
 
 -- A mealworm (CONTEXT.md): a treat that gives satiety. Treats owns the item
 -- record; TreatView owns the sprite and drag.
@@ -26,7 +27,7 @@ local TOOLTIP = {
 	title = "Mealworm",
 	rows = {
 		{ icon = "assets/objects/carrot.png", text = "+" .. Mealworm.AMOUNT },
-		{ icon = "assets/fauna/heart.png", text = "+" .. Gauges.HAPPINESS_BUFF_AMOUNT },
+		{ icon = HappinessIcon.HAPPY, text = "+" .. Gauges.HAPPINESS_BUFF_AMOUNT },
 	},
 }
 

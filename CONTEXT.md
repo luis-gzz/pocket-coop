@@ -91,7 +91,7 @@ A flat, temporary happiness boost lasting an hour. A chicken has at most one: gr
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
 
 **Chicken tooltip**:
-The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
+The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — showing whether she's laying at the full rate, a reduced rate, or not at all. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
 _Avoid_: Popover, inspector, stats panel
 
 **Clock**:

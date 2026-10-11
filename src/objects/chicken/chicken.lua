@@ -8,6 +8,7 @@ local Tuning = require("src.systems.tuning")
 local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Tooltip = require("src.ui.tooltip")
+local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
 
 local Chicken = {}
@@ -34,7 +35,6 @@ local SELECTED_PATH = "assets/fauna/CHICKEN/chickeSelected.png"
 
 -- Placeholder until chickens can be named.
 local NAME = "Pollo"
-local HAPPINESS_ICON = "assets/fauna/heart.png"
 local FULLNESS_ICON = "assets/objects/carrot.png"
 local CLEANLINESS_ICON = "assets/objects/sparkle.png"
 local HYDRATION_ICON = "assets/objects/water_drop.png"
@@ -592,7 +592,10 @@ function Chicken:setupTouch()
 								self:setSelected(false)
 							end,
 							rows = {
-								{ icon = HAPPINESS_ICON, getValue = function() return self.gauges:getHappiness() end },
+								{
+									icon = HappinessIcon.live(function() return self.gauges:getHappiness() end),
+									getValue = function() return self.gauges:getHappiness() end,
+								},
 								{ icon = FULLNESS_ICON, getValue = function() return self.gauges.satiety end },
 								{ icon = CLEANLINESS_ICON, getValue = function() return self.gauges.cleanliness end },
 								{ icon = HYDRATION_ICON, getValue = function() return self.gauges.hydration end },
