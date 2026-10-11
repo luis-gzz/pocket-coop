@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 local Layout = require("src.ui.layout")
+local Font = require("src.ui.font")
 
 -- A small popover with a live-refreshed bar per row. Either anchored beside a
 -- world point, or (content.corner) in a play area corner clear of it.
@@ -13,9 +14,8 @@ local Tooltip = {}
 -- absolute size.
 local BAR_WIDTH = 50 * Constants.PIXEL_SCALE
 local BAR_HEIGHT = 4 * Constants.PIXEL_SCALE
-local ROW_HEIGHT = 14 * Constants.PIXEL_SCALE
+local LABEL_ROW_GAP = 4 * Constants.PIXEL_SCALE -- between a labeled bar and the next row's label
 local PANEL_PADDING = 5 * Constants.PIXEL_SCALE
-local PANEL_PADDING_BOTTOM = 2.5 * Constants.PIXEL_SCALE
 local PANEL_CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
 local PANEL_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 local TEXT_BAR_GAP = 2 * Constants.PIXEL_SCALE -- gap between a bar's label and the bar itself
@@ -35,8 +35,6 @@ local ICON_SIZE = 8 * Constants.PIXEL_SCALE
 local ICON_BAR_GAP = 3 * Constants.PIXEL_SCALE
 local ICON_ROW_GAP = 2 * Constants.PIXEL_SCALE
 local TITLE_GAP = 5 * Constants.PIXEL_SCALE -- between the title and the first row
--- Awkward.ttf reserves extra room above its ink; pull the title up to offset it.
-local TITLE_TOP_TRIM = 3 * Constants.PIXEL_SCALE
 
 local current = nil -- { dismiss, group, refresh, content }
 local ignoringTap = false
@@ -57,14 +55,15 @@ local function makeBar(group, x, barY)
 	return fill
 end
 
+-- Returns the bar's fill and the row's height.
 local function makeLabeledBar(group, label, y)
 	local text = display.newText(group, label, 0, y, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	text.anchorX = 0
-	text.anchorY = 0
-	text.x = 0
+	Font.placeCapsAt(text, y, Constants.FONT_SIZE_SMALL)
 	text:setFillColor(0.2, 0.2, 0.2)
 
-	return makeBar(group, 0, y + Constants.FONT_SIZE_SMALL + TEXT_BAR_GAP)
+	local barTop = y + Font.capHeight(Constants.FONT_SIZE_SMALL) + TEXT_BAR_GAP
+	return makeBar(group, 0, barTop + BAR_HEIGHT / 2), barTop + BAR_HEIGHT - y
 end
 
 local function makeIconBar(group, iconPath, y)
@@ -86,10 +85,9 @@ local function makeIconText(group, iconPath, text, y)
 	icon.x = 0
 	icon.y = y
 
-	local label = display.newText(
-		group, text, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2, Constants.FONT, Constants.FONT_SIZE_SMALL
-	)
+	local label = display.newText(group, text, ICON_SIZE + ICON_BAR_GAP, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	label.anchorX = 0
+	Font.centerCapsOn(label, y + ICON_SIZE / 2, Constants.FONT_SIZE_SMALL)
 	label:setFillColor(0.2, 0.2, 0.2)
 	return ICON_SIZE + ICON_BAR_GAP + label.width
 end
@@ -188,6 +186,7 @@ function Tooltip.show(content)
 	local group = display.newGroup()
 	local contentGroup = display.newGroup()
 	contentGroup.x = PANEL_PADDING
+	contentGroup.y = PANEL_PADDING
 
 	local y = 0
 	local title
@@ -195,29 +194,26 @@ function Tooltip.show(content)
 		title = display.newText(contentGroup, content.title, 0, 0, Constants.FONT, Constants.FONT_SIZE_LARGE)
 		title:setFillColor(0.2, 0.2, 0.2)
 		title.anchorX = 0
-		title.anchorY = 0
-		title.y = -TITLE_TOP_TRIM
-		y = title.height - TITLE_TOP_TRIM + TITLE_GAP
+		Font.placeCapsAt(title, 0, Constants.FONT_SIZE_LARGE)
+		y = Font.capHeight(Constants.FONT_SIZE_LARGE) + TITLE_GAP
 	end
 
 	local fills = {}
-	local hasIcons = false
 	local contentWidth = title and title.width or 0
 	for index, row in ipairs(rows) do
 		if row.text then
-			hasIcons = true
 			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y))
 			y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 		else
 			local fill
 			if row.icon then
-				hasIcons = true
 				fill = makeIconBar(contentGroup, row.icon, y)
 				y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 				contentWidth = math.max(contentWidth, ICON_SIZE + ICON_BAR_GAP + BAR_WIDTH)
 			else
-				fill = makeLabeledBar(contentGroup, row.label, y)
-				y = y + ROW_HEIGHT
+				local rowHeight
+				fill, rowHeight = makeLabeledBar(contentGroup, row.label, y)
+				y = y + rowHeight + (index < #rows and LABEL_ROW_GAP or 0)
 				contentWidth = math.max(contentWidth, BAR_WIDTH)
 			end
 			table.insert(fills, { fill = fill, getValue = row.getValue })
@@ -225,14 +221,7 @@ function Tooltip.show(content)
 	end
 
 	local panelWidth = contentWidth + PANEL_PADDING * 2
-	local panelHeight
-	if hasIcons then
-		contentGroup.y = PANEL_PADDING
-		panelHeight = y + PANEL_PADDING * 2
-	else
-		-- Labeled rows carry their own space above the text and below the bar.
-		panelHeight = y + PANEL_PADDING + PANEL_PADDING_BOTTOM
-	end
+	local panelHeight = y + PANEL_PADDING * 2
 
 	local place = content.corner and cornerPosition or anchoredPosition
 	group.x, group.y = place(content.x, content.y, panelWidth, panelHeight)

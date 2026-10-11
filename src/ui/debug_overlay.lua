@@ -1,5 +1,6 @@
 local Clock = require("src.systems.clock")
 local Constants = require("src.util.constants")
+local Font = require("src.ui.font")
 local Garden = require("src.systems.garden")
 local WelcomeCard = require("src.ui.welcome_card")
 
@@ -34,7 +35,8 @@ function DebugOverlay.create()
 	toggle.strokeWidth = STROKE_WIDTH
 	toggle:setStrokeColor(0.4, 0.4, 0.4)
 
-	local toggleLabel = display.newText(root, "", x + TOGGLE_WIDTH / 2, y + TOGGLE_HEIGHT / 2, Constants.FONT, Constants.FONT_SIZE_SMALL)
+	local toggleLabel = display.newText(root, "", x + TOGGLE_WIDTH / 2, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
+	Font.centerCapsOn(toggleLabel, y + TOGGLE_HEIGHT / 2, Constants.FONT_SIZE_SMALL)
 	toggleLabel:setFillColor(0, 0, 0)
 
 	local function refreshLabel()
@@ -87,7 +89,8 @@ function DebugOverlay.create()
 			button.strokeWidth = STROKE_WIDTH
 			button:setStrokeColor(0.4, 0.4, 0.4)
 
-			local label = display.newText(group, text, buttonX + BUTTON_WIDTH / 2, buttonY + BUTTON_HEIGHT / 2, Constants.FONT, Constants.FONT_SIZE_SMALL)
+			local label = display.newText(group, text, buttonX + BUTTON_WIDTH / 2, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
+			Font.centerCapsOn(label, buttonY + BUTTON_HEIGHT / 2, Constants.FONT_SIZE_SMALL)
 			label:setFillColor(0, 0, 0)
 
 			button:addEventListener("tap", function()
