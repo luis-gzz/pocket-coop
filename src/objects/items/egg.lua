@@ -12,22 +12,35 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 7, 8
 
 Egg.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Egg.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
+-- Invisible tap margin around the sprite, for fingers bigger than the egg.
+local TAP_PADDING = 4 * Constants.PIXEL_SCALE
+
+-- The egg sprite in a group with a padded, invisible hit rect; taps on
+-- either call onTap.
+local function newTappable(parent, onTap)
+	local group = display.newGroup()
+	parent:insert(group)
+	local hitArea = display.newRect(group, 0, 0, Egg.WIDTH + TAP_PADDING * 2, Egg.HEIGHT + TAP_PADDING * 2)
+	hitArea.isVisible = false
+	hitArea.isHitTestable = true
+	display.newImageRect(group, IMAGE_PATH, Egg.WIDTH, Egg.HEIGHT)
+	group:addEventListener("tap", function()
+		onTap()
+		return true
+	end)
+	return group
+end
 
 -- A floor egg: its own YSort-registered image at (x, y). onTap() is called
 -- when tapped, so the caller (Garden) can collect it.
 function Egg.newFloor(x, y, onTap)
-	local image = display.newImageRect(IMAGE_PATH, Egg.WIDTH, Egg.HEIGHT)
-	YSort.getGroup():insert(image)
-	image.x = x
-	image.y = y
-	YSort.add(image, function(view)
-		return view.y + Egg.HEIGHT / 2
+	local view = newTappable(YSort.getGroup(), onTap)
+	view.x = x
+	view.y = y
+	YSort.add(view, function(object)
+		return object.y + Egg.HEIGHT / 2
 	end)
-	image:addEventListener("tap", function()
-		onTap()
-		return true
-	end)
-	return image
+	return view
 end
 
 -- An egg sitting inside a bed's own display group (see bed.lua) - inserting
@@ -37,14 +50,10 @@ end
 -- center, reading as sitting in the nest rather than floating above it.
 -- onTap() is called when tapped, so the caller (Garden) can collect it.
 function Egg.newInBed(bedGroup, offsetX, onTap)
-	local image = display.newImageRect(bedGroup, IMAGE_PATH, Egg.WIDTH, Egg.HEIGHT)
-	image.x = offsetX
-	image.y = -Egg.HEIGHT / 2
-	image:addEventListener("tap", function()
-		onTap()
-		return true
-	end)
-	return image
+	local view = newTappable(bedGroup, onTap)
+	view.x = offsetX
+	view.y = -Egg.HEIGHT / 2
+	return view
 end
 
 return Egg
