@@ -1,5 +1,6 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
+local Font = require("src.ui.font")
 
 -- Welcome-back card shown after a full offline catch-up. Dismissed by OK or
 -- any outside tap, which never reaches the world; the game keeps running.
@@ -78,7 +79,7 @@ function WelcomeCard.show(elapsedSeconds)
 	})
 	text:setFillColor(0.2, 0.2, 0.2)
 
-	local panelHeight = PANEL_PADDING * 2 + text.height + TEXT_BUTTON_GAP + BUTTON_HEIGHT
+	local panelHeight = PANEL_PADDING * 2 + Font.inkHeight(text, Constants.FONT_SIZE_SMALL) + TEXT_BUTTON_GAP + BUTTON_HEIGHT
 	local panel = display.newRoundedRect(group, 0, 0, PANEL_WIDTH, panelHeight, PANEL_CORNER_RADIUS)
 	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
 	panel.strokeWidth = PANEL_STROKE_WIDTH
@@ -90,8 +91,7 @@ function WelcomeCard.show(elapsedSeconds)
 	end)
 
 	group:insert(text)
-	text.anchorY = 0
-	text.y = -panelHeight / 2 + PANEL_PADDING
+	Font.placeCapsAt(text, -panelHeight / 2 + PANEL_PADDING, Constants.FONT_SIZE_SMALL)
 
 	local buttonY = panelHeight / 2 - PANEL_PADDING - BUTTON_HEIGHT / 2
 	local button = display.newRoundedRect(group, 0, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT, BUTTON_CORNER_RADIUS)
@@ -103,7 +103,8 @@ function WelcomeCard.show(elapsedSeconds)
 		return true
 	end)
 
-	local label = display.newText(group, "OK", 0, buttonY, Constants.FONT, Constants.FONT_SIZE_SMALL)
+	local label = display.newText(group, "OK", 0, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
+	Font.centerCapsOn(label, buttonY, Constants.FONT_SIZE_SMALL)
 	label:setFillColor(0.2, 0.2, 0.2)
 
 	current = { dismiss = dismiss, group = group }

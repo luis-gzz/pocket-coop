@@ -1,5 +1,6 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
+local Shadow = require("src.objects.shadow")
 
 -- The visual, tappable side of a dropping record - Garden owns the data
 -- (garden-wide, not any one chicken's - see ADR-0012), this owns the
@@ -13,6 +14,8 @@ local WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 local HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 Dropping.WIDTH = WIDTH
 Dropping.HEIGHT = HEIGHT
+-- Invisible tap margin around the sprite, for fingers bigger than the dropping.
+local TAP_PADDING = 4 * Constants.PIXEL_SCALE
 
 -- record: the {x, y, createdAt} table Garden owns. onClean(dropping) is
 -- called when tapped, so the caller (Garden) can remove it from its own
@@ -21,8 +24,14 @@ function Dropping.new(record, onClean)
 	local self = setmetatable({}, Dropping)
 	self.record = record
 
-	self.image = display.newImageRect(IMAGE_PATH, WIDTH, HEIGHT)
+	-- The sprite plus a padded, invisible hit rect, grouped so a tap on either cleans it.
+	self.image = display.newGroup()
 	YSort.getGroup():insert(self.image)
+	local hitArea = display.newRect(self.image, 0, 0, WIDTH + TAP_PADDING * 2, HEIGHT + TAP_PADDING * 2)
+	hitArea.isVisible = false
+	hitArea.isHitTestable = true
+	Shadow.new(self.image, NATIVE_WIDTH).y = HEIGHT / 2
+	display.newImageRect(self.image, IMAGE_PATH, WIDTH, HEIGHT)
 	self.image.x = record.x
 	self.image.y = record.y
 	self.image:addEventListener("tap", function()

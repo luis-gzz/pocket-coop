@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local TreatView = require("src.objects.items.treat_view")
 local Gauges = require("src.objects.chicken.gauges")
+local HappinessIcon = require("src.ui.happiness_icon")
 
 -- Ash (CONTEXT.md): the early-game treat that bumps cleanliness, drawn as
 -- an ash patch in the floor layer. Treats owns the item record.
@@ -29,7 +30,7 @@ local TOOLTIP = {
 	title = "Ash bath",
 	rows = {
 		{ icon = "assets/objects/sparkle.png", text = "+" .. Ash.AMOUNT },
-		{ icon = "assets/fauna/heart.png", text = "+" .. Gauges.HAPPINESS_BUFF_AMOUNT },
+		{ icon = HappinessIcon.HAPPY, text = "+" .. Gauges.HAPPINESS_BUFF_AMOUNT },
 	},
 }
 

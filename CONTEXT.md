@@ -91,7 +91,7 @@ A flat, temporary happiness boost lasting an hour. A chicken has at most one: gr
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
 
 **Chicken tooltip**:
-The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
+The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — showing whether she's laying at the full rate, a reduced rate, or not at all. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
 _Avoid_: Popover, inspector, stats panel
 
 **Clock**:
@@ -101,12 +101,16 @@ The single source of simulated time every chicken's gauges advance against, repl
 A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
 **World object**:
-An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, hen beds, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, mealworms) are depth-sorted against each other in the main sort; hen beds, food sources, and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
+An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, hen beds, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, mealworms, lettuce) are depth-sorted against each other in the main sort; hen beds, seed patches, and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
 _Avoid_: Entity, game object (too generic — use world object specifically for things that live in the game world)
 
 **Floor layer**:
-The fixed render layer beneath the main depth sort, holding hen beds, food sources, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms), no matter their relative position. Hen beds are depth-sorted against each other within this layer, so overlapping beds still order correctly; food sources and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
+The fixed render layer beneath the main depth sort, holding hen beds, seed patches, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms, lettuce), no matter their relative position. Hen beds are depth-sorted against each other within this layer, so overlapping beds still order correctly; seed patches and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
 _Avoid_: Background layer, ground layer (Ground already owns that sense)
+
+**Shadow**:
+A soft patch of shade a world object casts on the ground at its base. Every world object casts one except *flat* ones lying on the ground (the seed patch, ash) — so any new world object that stands up should cast one. Eggs sitting in a hen bed share the bed's shadow. Unrelated to the floor layer: a hen bed is in the floor layer but isn't flat.
+_Avoid_: Drop shadow
 
 **Depth**:
 A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).

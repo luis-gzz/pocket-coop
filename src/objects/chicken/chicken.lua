@@ -8,7 +8,9 @@ local Tuning = require("src.systems.tuning")
 local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Tooltip = require("src.ui.tooltip")
+local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
+local Shadow = require("src.objects.shadow")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -19,7 +21,7 @@ local DISPLAY_SCALE = Constants.PIXEL_SCALE
 local SHEET_PATH = "assets/fauna/CHICKEN/"
 local COLOR = "LightBrown"
 
-local SHADOW_PATH = "assets/fauna/CHICKEN/chickenShadow.png"
+-- The selected ring's size, matching the shadow beneath it.
 local SHADOW_WIDTH, SHADOW_HEIGHT = 15, 5
 
 -- view.y is the sprite's vertical center; SPRITE_SIZE / 2 (scaled by
@@ -34,7 +36,6 @@ local SELECTED_PATH = "assets/fauna/CHICKEN/chickeSelected.png"
 
 -- Placeholder until chickens can be named.
 local NAME = "Pollo"
-local HAPPINESS_ICON = "assets/fauna/heart.png"
 local FULLNESS_ICON = "assets/objects/carrot.png"
 local CLEANLINESS_ICON = "assets/objects/sparkle.png"
 local HYDRATION_ICON = "assets/objects/water_drop.png"
@@ -108,25 +109,26 @@ local function pickWanderDestination(chicken)
 end
 
 -- Where to stand so the beak lands on a peck point, feet level with it:
--- whichever side is the shorter walk and in bounds. Returns x, y, facing, point.
+-- whichever side is the shorter walk and in bounds. The target picks a point
+-- for each side's facing. Returns x, y, facing, point.
 local function pickStandSpot(chicken, target)
 	local bounds = getBounds()
 	local fromX, fromY = chicken.view.x, chicken.view.y
 	local point
 	for _ = 1, PECK_PICK_ATTEMPTS do
-		point = target.pickPeckPoint()
-		local y = point.y - GROUND_OFFSET
-		local bestX, bestFacing, bestDistance
+		local bestX, bestY, bestFacing, bestPoint, bestDistance
 		for _, facing in ipairs({ 1, -1 }) do
+			point = target.pickPeckPoint(facing)
 			local x = point.x - facing * BEAK_DX
+			local y = point.y - GROUND_OFFSET
 			local distance = (x - fromX) ^ 2 + (y - fromY) ^ 2
 			local inBounds = x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY
 			if inBounds and (not bestDistance or distance < bestDistance) then
-				bestX, bestFacing, bestDistance = x, facing, distance
+				bestX, bestY, bestFacing, bestPoint, bestDistance = x, y, facing, point, distance
 			end
 		end
 		if bestX then
-			return bestX, y, bestFacing, point
+			return bestX, bestY, bestFacing, bestPoint
 		end
 	end
 	local x = clamp(point.x - BEAK_DX, bounds.minX, bounds.maxX)
@@ -268,9 +270,8 @@ function Chicken.new(saved, layCallbacks)
 		return view.y + GROUND_OFFSET
 	end)
 
-	local shadow = display.newImageRect(self.view, SHADOW_PATH, SHADOW_WIDTH, SHADOW_HEIGHT)
-	shadow.x = 0
-	shadow.y = SPRITE_SIZE / 2
+	-- view is already scaled by DISPLAY_SCALE, so the shadow's unit is 1.
+	Shadow.newOval(self.view, SPRITE_SIZE, 1).y = SPRITE_SIZE / 2
 
 	-- Same spot as the shadow, rendered on top of it (inserted right after);
 	-- shown only while the chicken's tooltip is open.
@@ -584,6 +585,7 @@ function Chicken:setupTouch()
 							y = self.view.y,
 							corner = true,
 							title = NAME,
+							source = self,
 							onShow = function()
 								self:setSelected(true)
 							end,
@@ -591,7 +593,10 @@ function Chicken:setupTouch()
 								self:setSelected(false)
 							end,
 							rows = {
-								{ icon = HAPPINESS_ICON, getValue = function() return self.gauges:getHappiness() end },
+								{
+									icon = HappinessIcon.live(function() return self.gauges:getHappiness() end),
+									getValue = function() return self.gauges:getHappiness() end,
+								},
 								{ icon = FULLNESS_ICON, getValue = function() return self.gauges.satiety end },
 								{ icon = CLEANLINESS_ICON, getValue = function() return self.gauges.cleanliness end },
 								{ icon = HYDRATION_ICON, getValue = function() return self.gauges.hydration end },

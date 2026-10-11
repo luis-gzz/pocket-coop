@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 local Layout = require("src.ui.layout")
+local Font = require("src.ui.font")
 
 -- A small popover with a live-refreshed bar per row. Either anchored beside a
 -- world point, or (content.corner) in a play area corner clear of it.
@@ -13,9 +14,8 @@ local Tooltip = {}
 -- absolute size.
 local BAR_WIDTH = 50 * Constants.PIXEL_SCALE
 local BAR_HEIGHT = 4 * Constants.PIXEL_SCALE
-local ROW_HEIGHT = 14 * Constants.PIXEL_SCALE
+local LABEL_ROW_GAP = 4 * Constants.PIXEL_SCALE -- between a labeled bar and the next row's label
 local PANEL_PADDING = 5 * Constants.PIXEL_SCALE
-local PANEL_PADDING_BOTTOM = 2.5 * Constants.PIXEL_SCALE
 local PANEL_CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
 local PANEL_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 local TEXT_BAR_GAP = 2 * Constants.PIXEL_SCALE -- gap between a bar's label and the bar itself
@@ -35,11 +35,12 @@ local ICON_SIZE = 8 * Constants.PIXEL_SCALE
 local ICON_BAR_GAP = 3 * Constants.PIXEL_SCALE
 local ICON_ROW_GAP = 2 * Constants.PIXEL_SCALE
 local TITLE_GAP = 5 * Constants.PIXEL_SCALE -- between the title and the first row
--- Awkward.ttf reserves extra room above its ink; pull the title up to offset it.
-local TITLE_TOP_TRIM = 3 * Constants.PIXEL_SCALE
 
 local current = nil -- { dismiss, group, refresh, content }
 local ignoringTap = false
+-- Source of a tooltip the current tap just dismissed, so tapping that same
+-- source toggles it closed instead of reopening it. Cleared a frame later.
+local dismissedSource = nil
 
 local function clamp(value, low, high)
 	return math.max(low, math.min(high, value))
@@ -57,39 +58,52 @@ local function makeBar(group, x, barY)
 	return fill
 end
 
+-- Returns the bar's fill and the row's height.
 local function makeLabeledBar(group, label, y)
 	local text = display.newText(group, label, 0, y, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	text.anchorX = 0
-	text.anchorY = 0
-	text.x = 0
+	Font.placeCapsAt(text, y, Constants.FONT_SIZE_SMALL)
 	text:setFillColor(0.2, 0.2, 0.2)
 
-	return makeBar(group, 0, y + Constants.FONT_SIZE_SMALL + TEXT_BAR_GAP)
+	local barTop = y + Font.capHeight(Constants.FONT_SIZE_SMALL) + TEXT_BAR_GAP
+	return makeBar(group, 0, barTop + BAR_HEIGHT / 2), barTop + BAR_HEIGHT - y
 end
 
-local function makeIconBar(group, iconPath, y)
-	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
-	icon.anchorX = 0
-	icon.anchorY = 0
-	icon.x = 0
-	icon.y = y
+-- icon: an image path, or a sheet frame { sheet, frameCount, frame | getFrame }.
+-- A getFrame icon is added to liveIcons for refresh to update.
+local function makeIcon(group, icon, y, liveIcons)
+	local image
+	if type(icon) == "string" then
+		image = display.newImageRect(group, icon, ICON_SIZE, ICON_SIZE)
+	else
+		image = display.newSprite(group, icon.sheet, { start = 1, count = icon.frameCount })
+		image:setFrame(icon.frame or icon.getFrame())
+		image.xScale = ICON_SIZE / image.width
+		image.yScale = ICON_SIZE / image.height
+		if icon.getFrame then
+			table.insert(liveIcons, { sprite = image, getFrame = icon.getFrame })
+		end
+	end
+	image.anchorX = 0
+	image.anchorY = 0
+	image.x = 0
+	image.y = y
+end
+
+local function makeIconBar(group, icon, y, liveIcons)
+	makeIcon(group, icon, y, liveIcons)
 
 	return makeBar(group, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2)
 end
 
 -- An icon followed by static text (a treat's payoff) instead of a bar.
 -- Returns the row's width.
-local function makeIconText(group, iconPath, text, y)
-	local icon = display.newImageRect(group, iconPath, ICON_SIZE, ICON_SIZE)
-	icon.anchorX = 0
-	icon.anchorY = 0
-	icon.x = 0
-	icon.y = y
+local function makeIconText(group, icon, text, y, liveIcons)
+	makeIcon(group, icon, y, liveIcons)
 
-	local label = display.newText(
-		group, text, ICON_SIZE + ICON_BAR_GAP, y + ICON_SIZE / 2, Constants.FONT, Constants.FONT_SIZE_SMALL
-	)
+	local label = display.newText(group, text, ICON_SIZE + ICON_BAR_GAP, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	label.anchorX = 0
+	Font.centerCapsOn(label, y + ICON_SIZE / 2, Constants.FONT_SIZE_SMALL)
 	label:setFillColor(0.2, 0.2, 0.2)
 	return ICON_SIZE + ICON_BAR_GAP + label.width
 end
@@ -148,10 +162,16 @@ function Tooltip.hide()
 	current = nil
 end
 
--- content: { x, y, rows, title?, corner?, onShow?, onHide? }, where each row is
+-- content: { x, y, rows, title?, corner?, source?, onShow?, onHide? }, where
+-- source (the chicken/item it describes) makes tapping it again close it. Each row is
 -- { label | icon, getValue } or { icon, text } - see chicken.lua/lettuce.lua/
 -- mealworm.lua for shape.
 function Tooltip.show(content)
+	local source = content.source
+	if source and ((current and current.content.source == source) or dismissedSource == source) then
+		Tooltip.hide()
+		return
+	end
 	Tooltip.hide()
 	if content.onShow then
 		content.onShow()
@@ -168,6 +188,7 @@ function Tooltip.show(content)
 		display.actualContentHeight
 	)
 	dismiss:setFillColor(0, 0, 0, 0.01)
+	local panel -- created below, once its size is known
 	-- The tap that opened this tooltip also generates Solar2D's own
 	-- synthesized "tap" event, dispatched to whatever's on top - which would
 	-- be this brand-new rect, instantly closing what we just opened. Attach
@@ -175,9 +196,20 @@ function Tooltip.show(content)
 	timer.performWithDelay(1, function()
 		pcall(function()
 			dismiss:addEventListener("tap", function()
-				if not ignoringTap then
-					Tooltip.hide()
+				if ignoringTap then
+					return true
 				end
+				-- Let the tap carry on to whatever's beneath, so it acts in the same tap.
+				dismissedSource = current and current.content.source
+				timer.performWithDelay(1, function()
+					dismissedSource = nil
+				end)
+				Tooltip.hide()
+				return false
+			end)
+			-- A tap on the panel only closes it, never reaching what's hidden beneath.
+			panel:addEventListener("tap", function()
+				Tooltip.hide()
 				return true
 			end)
 		end)
@@ -188,6 +220,7 @@ function Tooltip.show(content)
 	local group = display.newGroup()
 	local contentGroup = display.newGroup()
 	contentGroup.x = PANEL_PADDING
+	contentGroup.y = PANEL_PADDING
 
 	local y = 0
 	local title
@@ -195,29 +228,27 @@ function Tooltip.show(content)
 		title = display.newText(contentGroup, content.title, 0, 0, Constants.FONT, Constants.FONT_SIZE_LARGE)
 		title:setFillColor(0.2, 0.2, 0.2)
 		title.anchorX = 0
-		title.anchorY = 0
-		title.y = -TITLE_TOP_TRIM
-		y = title.height - TITLE_TOP_TRIM + TITLE_GAP
+		Font.placeCapsAt(title, 0, Constants.FONT_SIZE_LARGE)
+		y = Font.capHeight(Constants.FONT_SIZE_LARGE) + TITLE_GAP
 	end
 
 	local fills = {}
-	local hasIcons = false
+	local liveIcons = {}
 	local contentWidth = title and title.width or 0
 	for index, row in ipairs(rows) do
 		if row.text then
-			hasIcons = true
-			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y))
+			contentWidth = math.max(contentWidth, makeIconText(contentGroup, row.icon, row.text, y, liveIcons))
 			y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 		else
 			local fill
 			if row.icon then
-				hasIcons = true
-				fill = makeIconBar(contentGroup, row.icon, y)
+				fill = makeIconBar(contentGroup, row.icon, y, liveIcons)
 				y = y + ICON_SIZE + (index < #rows and ICON_ROW_GAP or 0)
 				contentWidth = math.max(contentWidth, ICON_SIZE + ICON_BAR_GAP + BAR_WIDTH)
 			else
-				fill = makeLabeledBar(contentGroup, row.label, y)
-				y = y + ROW_HEIGHT
+				local rowHeight
+				fill, rowHeight = makeLabeledBar(contentGroup, row.label, y)
+				y = y + rowHeight + (index < #rows and LABEL_ROW_GAP or 0)
 				contentWidth = math.max(contentWidth, BAR_WIDTH)
 			end
 			table.insert(fills, { fill = fill, getValue = row.getValue })
@@ -225,19 +256,12 @@ function Tooltip.show(content)
 	end
 
 	local panelWidth = contentWidth + PANEL_PADDING * 2
-	local panelHeight
-	if hasIcons then
-		contentGroup.y = PANEL_PADDING
-		panelHeight = y + PANEL_PADDING * 2
-	else
-		-- Labeled rows carry their own space above the text and below the bar.
-		panelHeight = y + PANEL_PADDING + PANEL_PADDING_BOTTOM
-	end
+	local panelHeight = y + PANEL_PADDING * 2
 
 	local place = content.corner and cornerPosition or anchoredPosition
 	group.x, group.y = place(content.x, content.y, panelWidth, panelHeight)
 
-	local panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
+	panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
 	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
 	panel.strokeWidth = PANEL_STROKE_WIDTH
 	panel:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))
@@ -246,6 +270,12 @@ function Tooltip.show(content)
 	local function refresh()
 		for _, entry in ipairs(fills) do
 			entry.fill.width = math.max(1, BAR_WIDTH * (entry.getValue() / 100))
+		end
+		for _, entry in ipairs(liveIcons) do
+			local frame = entry.getFrame()
+			if entry.sprite.frame ~= frame then
+				entry.sprite:setFrame(frame)
+			end
 		end
 	end
 	refresh()

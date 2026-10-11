@@ -46,12 +46,18 @@ Constants.TILE_SIZE = Constants.TILE_NATIVE_SIZE * Constants.PIXEL_SCALE
 -- Shared UI font. Referenced by its resource-relative path; Solar2D accepts
 -- that directly on the Simulator/Android. An iOS build will additionally
 -- need it declared under build.settings' ios.plist.UIAppFonts.
-Constants.FONT = "assets/font/Awkward/Awkward.ttf"
+Constants.FONT = "assets/font/VGATypewriter/VGATypewriter.ttf"
+
+-- Where FONT's ink sits in a newText box, as fractions of font size. From the
+-- .ttf: cap top and baseline below the box top, descent above the box bottom.
+Constants.FONT_CAP_TOP = 0.28
+Constants.FONT_BASELINE = 0.84
+Constants.FONT_DESCENT = 0.125
 
 -- Font sizes in "native" units, scaled by PIXEL_SCALE like every other piece
 -- of art, so text grows/shrinks along with the rest of the game instead of
 -- staying a fixed point size.
-Constants.FONT_SIZE_SMALL = 14 * Constants.PIXEL_SCALE
-Constants.FONT_SIZE_LARGE = 16 * Constants.PIXEL_SCALE
+Constants.FONT_SIZE_SMALL = 9 * Constants.PIXEL_SCALE
+Constants.FONT_SIZE_LARGE = 11 * Constants.PIXEL_SCALE
 
 return Constants
