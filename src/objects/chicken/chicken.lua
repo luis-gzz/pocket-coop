@@ -108,25 +108,26 @@ local function pickWanderDestination(chicken)
 end
 
 -- Where to stand so the beak lands on a peck point, feet level with it:
--- whichever side is the shorter walk and in bounds. Returns x, y, facing, point.
+-- whichever side is the shorter walk and in bounds. The target picks a point
+-- for each side's facing. Returns x, y, facing, point.
 local function pickStandSpot(chicken, target)
 	local bounds = getBounds()
 	local fromX, fromY = chicken.view.x, chicken.view.y
 	local point
 	for _ = 1, PECK_PICK_ATTEMPTS do
-		point = target.pickPeckPoint()
-		local y = point.y - GROUND_OFFSET
-		local bestX, bestFacing, bestDistance
+		local bestX, bestY, bestFacing, bestPoint, bestDistance
 		for _, facing in ipairs({ 1, -1 }) do
+			point = target.pickPeckPoint(facing)
 			local x = point.x - facing * BEAK_DX
+			local y = point.y - GROUND_OFFSET
 			local distance = (x - fromX) ^ 2 + (y - fromY) ^ 2
 			local inBounds = x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY
 			if inBounds and (not bestDistance or distance < bestDistance) then
-				bestX, bestFacing, bestDistance = x, facing, distance
+				bestX, bestY, bestFacing, bestPoint, bestDistance = x, y, facing, point, distance
 			end
 		end
 		if bestX then
-			return bestX, y, bestFacing, point
+			return bestX, bestY, bestFacing, bestPoint
 		end
 	end
 	local x = clamp(point.x - BEAK_DX, bounds.minX, bounds.maxX)

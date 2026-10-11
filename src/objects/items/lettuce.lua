@@ -40,10 +40,11 @@ function Lettuce.new(item)
 	end
 	item.updateVisual()
 
-	-- Drawn from the fully-shrunk width, so the beak stays on the leaf.
-	function item.pickPeckPoint()
+	-- Drawn from the fully-shrunk width, so the beak stays on the leaf, and on
+	-- the half nearer a chicken facing `facing` toward it, so it doesn't cover it.
+	function item.pickPeckPoint(facing)
 		local span = width * MIN_SCALE * PECK_SPAN
-		return { x = item.x + (math.random() - 0.5) * span, y = sprite.y }
+		return { x = item.x - facing * math.random() * span / 2, y = sprite.y }
 	end
 
 	function item.destroyView()
