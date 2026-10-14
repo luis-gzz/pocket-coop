@@ -104,6 +104,7 @@ function Gauges.new(saved)
 	self.pendingLay = false
 
 	self.isEating = false
+	self.eatingPaused = false
 	self.boutTarget = nil
 
 	return self
@@ -126,6 +127,7 @@ end
 -- replaces satiety wholesale.
 function Gauges:resetHunger()
 	self.isEating = false
+	self.eatingPaused = false
 	self.boutTarget = nil
 	endHungerCycle(self)
 end
@@ -142,6 +144,7 @@ end
 -- or up to forageStop when foraging.
 function Gauges:startBout(fromSource)
 	self.isEating = true
+	self.eatingPaused = false
 	if fromSource then
 		local gap = Tuning.FOOD_CEILING - self.satiety
 		self.boutTarget = (gap <= Tuning.BOUT_FINISH_GAP) and Tuning.FOOD_CEILING or (self.satiety + gap / 2)
@@ -152,7 +155,13 @@ end
 
 function Gauges:stopEating()
 	self.isEating = false
+	self.eatingPaused = false
 	self.boutTarget = nil
+end
+
+-- Holds a bout mid-way (hopping between seeds): satiety neither rises nor falls.
+function Gauges:setEatingPaused(value)
+	self.eatingPaused = value
 end
 
 -- Mode follows whether food exists right now; placing or running out of food
@@ -189,8 +198,10 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource)
 	local satietyBefore = self.satiety
 	local boutDone = false
 	if self.isEating and self.boutTarget then
-		self.satiety = math.min(self.boutTarget, self.satiety + Tuning.SATIETY_EAT_RATE * dt)
-		boutDone = self.satiety >= self.boutTarget
+		if not self.eatingPaused then
+			self.satiety = math.min(self.boutTarget, self.satiety + Tuning.SATIETY_EAT_RATE * dt)
+			boutDone = self.satiety >= self.boutTarget
+		end
 	elseif not self.isEating then
 		local rate = Tuning.SATIETY_DECAY_RATE
 		if self:isSatisfied() then

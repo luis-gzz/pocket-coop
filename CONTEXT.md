@@ -26,11 +26,12 @@ The player's pet, driven by a finite state machine. Stays within the play area's
 One mode of chicken behavior — idle, approach, eat, bathe, wander, nest, or held — each with its own animation. The chicken is always in exactly one state.
 
 **Dwell time**:
-How long a chicken remains in idle or wander before the state machine re-decides. Randomized per state to avoid a robotic cadence.
+How long a chicken remains in idle before the state machine re-decides. Randomized to avoid a robotic cadence. Wander has none — it ends when its wander route does.
 _Avoid_: Duration, timer
 
-**Wander destination**:
-A random point near the chicken, within the play area's bounds, chosen when a chicken enters the wander state. Wander ends when the chicken arrives there — not on a timer, unlike idle/wander's dwell time.
+**Wander route**:
+A smooth, curving walk a chicken plans when it enters the wander state, always inside the play area. Wander ends when the chicken reaches the route's end — not on a timer, unlike idle's dwell time. A wander that directly follows another continues the same heading without slowing, so the two read as one walk.
+_Avoid_: Wander destination (retired — there is no longer a single point), path, pathing
 
 **Held**:
 The state a chicken is in while the player is dragging it. Entered by touch input rather than by the state machine's own re-decide logic; exits back into a fresh re-decide (not necessarily idle) on release.
@@ -161,7 +162,7 @@ Something the player places in the play area for chickens to repeatedly eat from
 _Avoid_: Feeder (implies a container), station, plate, food item (retired: one-use items left Feed and became treats)
 
 **Seed patch**:
-One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed, hopping to another still-showing seed (within the same bout) when its own disappears.
+One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed — the seed it pecks is the next to disappear — hopping to another still-showing seed (within the same bout) when its own disappears — unless one sits within a few pixels, which it pecks without moving. It doesn't eat while hopping: satiety and the patch both hold until it pecks again.
 _Avoid_: Seeds, seed pile (the patch is one thing, not ten)
 
 **Capacity**:
@@ -181,7 +182,7 @@ The spot on a food source or mealworm where a chicken's beak lands while it eats
 _Avoid_: Eating spot (that's where the chicken stands, not where it pecks)
 
 **Approach**:
-The state a chicken is in while walking to a food source or treat it has picked. Unlike a wander destination, the target is a specific item. For something it will eat, the chicken stands beside it at the same depth, on whichever side is the shorter walk, and turns to face it so its beak lands on a peck point. For ash it walks to the patch's center instead. Arrival enters eat (a food source), eats a mealworm over a couple of seconds of the eat animation (the mealworm staying in place until it's done), or enters bathe (ash) — or re-decides, if the target is gone before it gets there.
+The state a chicken is in while walking to a food source or treat it has picked. Unlike a wander route, the target is a specific item. For something it will eat, the chicken stands beside it at the same depth, on whichever side is the shorter walk, and turns to face it so its beak lands on a peck point. For ash it walks to the patch's center instead. Arrival enters eat (a food source), eats a mealworm over a couple of seconds of the eat animation (the mealworm staying in place until it's done), or enters bathe (ash) — or re-decides, if the target is gone before it gets there.
 _Avoid_: Seek, travel, pathing
 
 **Eat**:

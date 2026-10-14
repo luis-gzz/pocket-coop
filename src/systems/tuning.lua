@@ -8,7 +8,7 @@ Tuning.HOUR = HOUR
 -- Satiety.
 Tuning.SATIETY_DECAY_PER_HOUR = 12.5 -- 100 -> 25 over 6 h
 Tuning.SATIETY_DECAY_RATE = Tuning.SATIETY_DECAY_PER_HOUR / HOUR
-Tuning.SATIETY_EAT_RATE = 100 / 30 -- per second of active eating
+Tuning.SATIETY_EAT_RATE = 100 / 300 -- per second of active eating
 Tuning.SATISFIED_DURATION = 30 * 60 -- granted on reaching 100
 Tuning.SATISFIED_DECAY_FACTOR = 0.25
 Tuning.FORAGE_CEILING = 50

@@ -81,15 +81,16 @@ function DebugOverlay.create()
 		group.x = x
 		group.y = y + TOGGLE_HEIGHT + POPOVER_GAP
 
-		local function addButton(buttonX, buttonY, text, onTap)
-			local button = display.newRoundedRect(group, buttonX, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT, CORNER_RADIUS)
+		local function addButton(buttonX, buttonY, text, onTap, width)
+			width = width or BUTTON_WIDTH
+			local button = display.newRoundedRect(group, buttonX, buttonY, width, BUTTON_HEIGHT, CORNER_RADIUS)
 			button.anchorX = 0
 			button.anchorY = 0
 			button:setFillColor(0.92, 0.92, 0.92)
 			button.strokeWidth = STROKE_WIDTH
 			button:setStrokeColor(0.4, 0.4, 0.4)
 
-			local label = display.newText(group, text, buttonX + BUTTON_WIDTH / 2, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
+			local label = display.newText(group, text, buttonX + width / 2, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
 			Font.centerCapsOn(label, buttonY + BUTTON_HEIGHT / 2, Constants.FONT_SIZE_SMALL)
 			label:setFillColor(0, 0, 0)
 
@@ -115,6 +116,13 @@ function DebugOverlay.create()
 				end
 			end)
 		end
+
+		-- Third row, full width: empty every chicken's fullness.
+		local rowWidth = #SKIP_HOURS * BUTTON_WIDTH + (#SKIP_HOURS - 1) * BUTTON_GAP
+		addButton(0, 2 * (BUTTON_HEIGHT + BUTTON_GAP), "Fullness 0", function()
+			hidePopover()
+			Garden.debugEmptyFullness()
+		end, rowWidth)
 
 		current = { dismiss = dismiss, group = group }
 	end
