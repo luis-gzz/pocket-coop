@@ -39,7 +39,7 @@ Tuning.CLEAN_EASE_RATE = 1 / (30 * 60) -- per second: ~63% of the gap per 30 min
 -- Hydration: 100 -> 0 over 4 h; a drink runs straight to 100.
 Tuning.HYDRATION_DECAY_PER_HOUR = 25
 Tuning.HYDRATION_DECAY_RATE = Tuning.HYDRATION_DECAY_PER_HOUR / HOUR
-Tuning.HYDRATION_DRINK_RATE = 0.3 -- per second of drinking: ~2 min from a trigger
+Tuning.HYDRATION_DRINK_RATE = 1.2 -- per second of drinking: ~30 s from a trigger
 Tuning.THIRST_TRIGGER = { min = 55, max = 75 }
 Tuning.BOWL_WATER = 16 * Tuning.HYDRATION_DECAY_PER_HOUR -- 16 chicken-hours
 Tuning.WATERED_PLATEAU = 85 -- offline's watered value
