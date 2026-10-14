@@ -36,6 +36,10 @@ local LONG_PRESS_TIME = 350
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
+-- A horizontal move past this before the long press fires scrolls the
+-- row instead of picking the item up.
+local SCROLL_SLOP = 4 * Constants.PIXEL_SCALE
+
 local ITEMS = Catalog
 
 -- Preserve-aspect-ratio, centered ("contain") fit of (width, height) into a
@@ -51,9 +55,28 @@ function Toolbar.create()
 	local band = Layout.getBottomBandRect()
 	local centerY = (band.minY + band.maxY) / 2
 
+	-- Slots live in a strip clipped to the band; a row wider than the band
+	-- scrolls sideways. Strip coordinates match content coordinates at rest.
+	local container = display.newContainer(band.maxX - band.minX, band.maxY - band.minY)
+	container.x = (band.minX + band.maxX) / 2
+	container.y = centerY
+	local strip = display.newGroup()
+	container:insert(strip)
+	strip.x, strip.y = -container.x, -container.y
+
+	local scrollOffset = 0
+	local maxScroll = math.max(
+		0, SLOT_MARGIN * 2 + #ITEMS * SLOT_SIZE + (#ITEMS - 1) * SLOT_GAP - (band.maxX - band.minX)
+	)
+	local function scrollTo(offset)
+		scrollOffset = math.max(-maxScroll, math.min(0, offset))
+		strip.x = -container.x + scrollOffset
+	end
+
 	local buttonX = band.minX + SLOT_MARGIN
 	for _, item in ipairs(ITEMS) do
 		local slotGroup = display.newGroup()
+		strip:insert(slotGroup)
 		slotGroup.x = buttonX
 		slotGroup.y = centerY - SLOT_SIZE / 2
 
@@ -87,6 +110,8 @@ function Toolbar.create()
 		local wiggleHandle = nil
 		local pendingTouch = false
 		local longPressHandle = nil
+		local scrolling = false
+		local touchStartX, scrollStartOffset
 
 		local function beginDrag(startX, startY)
 			icon.isVisible = false
@@ -104,6 +129,7 @@ function Toolbar.create()
 				display.getCurrentStage():setFocus(background, event.id)
 				background.isFocus = true
 				pendingTouch = true
+				touchStartX, scrollStartOffset = event.x, scrollOffset
 				local startX, startY = event.x, event.y
 				longPressHandle = timer.performWithDelay(LONG_PRESS_TIME, function()
 					longPressHandle = nil
@@ -117,6 +143,16 @@ function Toolbar.create()
 					if ghost then
 						ghost.x = event.x
 						ghost.y = event.y
+					elseif pendingTouch and maxScroll > 0 and math.abs(event.x - touchStartX) > SCROLL_SLOP then
+						if longPressHandle then
+							timer.cancel(longPressHandle)
+							longPressHandle = nil
+						end
+						pendingTouch = false
+						scrolling = true
+					end
+					if scrolling then
+						scrollTo(scrollStartOffset + event.x - touchStartX)
 					end
 				elseif event.phase == "ended" or event.phase == "cancelled" then
 					display.getCurrentStage():setFocus(background, nil)
@@ -127,6 +163,7 @@ function Toolbar.create()
 						longPressHandle = nil
 					end
 					pendingTouch = false
+					scrolling = false
 
 					if ghost then
 						Wiggle.stop(wiggleHandle)

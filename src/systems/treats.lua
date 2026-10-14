@@ -2,8 +2,9 @@ local Constants = require("src.util.constants")
 local Placement = require("src.systems.placement")
 local Mealworm = require("src.objects.items.mealworm")
 local Ash = require("src.objects.items.ash")
+local Watermelon = require("src.objects.items.watermelon")
 
--- The shared owner of every placed treat: mealworms and ash
+-- The shared owner of every placed treat: mealworms, watermelon slices, and ash
 -- (CONTEXT.md's "Treats"). Feed's counterpart for one-use items, owned by
 -- Garden alongside it (ADR-0018).
 local Treats = {}
@@ -16,6 +17,7 @@ local ALERT_RADIUS = 48 * Constants.PIXEL_SCALE
 local TYPES = {
 	mealworm = Mealworm,
 	ash = Ash,
+	watermelon = Watermelon,
 }
 
 local items = {}
@@ -88,17 +90,18 @@ function Treats.tryPlace(itemType, x, y)
 end
 
 -- Claims a treat within ALERT_RADIUS of (x, y) for `chicken`, or returns
--- nil. Prefers one helping the chicken's lower gauge, then the nearest
+-- nil. Prefers one helping the chicken's lowest gauge, then the nearest
 -- (CONTEXT.md's Alert priority). Skips claimed and mid-drag treats.
-function Treats.claimNear(chicken, x, y, satiety, cleanliness)
+-- gauges: { satiety, cleanliness, hydration }.
+function Treats.claimNear(chicken, x, y, gauges)
+	local lowest = math.min(gauges.satiety, gauges.cleanliness, gauges.hydration)
 	local best, bestPreferred, bestDistance = nil, false, nil
 	for _, item in ipairs(items) do
 		if not item.dragging and not item.claimedBy then
 			local dx, dy = x - item.x, y - item.y
 			local distance = dx * dx + dy * dy
 			if distance <= ALERT_RADIUS * ALERT_RADIUS then
-				local preferred = (item.gauge == "satiety" and satiety <= cleanliness)
-					or (item.gauge == "cleanliness" and cleanliness <= satiety)
+				local preferred = gauges[item.gauge] <= lowest
 				if not best or (preferred and not bestPreferred)
 					or (preferred == bestPreferred and distance < bestDistance) then
 					best, bestPreferred, bestDistance = item, preferred, distance

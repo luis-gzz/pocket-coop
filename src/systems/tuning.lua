@@ -29,7 +29,6 @@ Tuning.FED_UNITS_PER_CHICKEN_HOUR = 100
 -- Where online eating settles - offline's fed value and unfed floor.
 Tuning.FED_PLATEAU = 90
 Tuning.UNFED_FLOOR = 25
-Tuning.UNFED_SETTLE_HOURS = 6 -- a starved phase past this reads as fully settled
 
 -- Cleanliness eases toward its target with this time constant (closed
 -- form, so it's exact for any dt - a short app switch or an offline gap).
@@ -37,8 +36,19 @@ Tuning.CLEAN_PENALTY_PER_DROPPING = 10
 Tuning.CLEAN_PENALTY_PER_FLOOR_EGG = 5
 Tuning.CLEAN_EASE_RATE = 1 / (30 * 60) -- per second: ~63% of the gap per 30 min
 
--- Happiness: satiety at or above this counts as fully fed.
+-- Hydration: 100 -> 0 over 4 h; a drink runs straight to 100.
+Tuning.HYDRATION_DECAY_PER_HOUR = 25
+Tuning.HYDRATION_DECAY_RATE = Tuning.HYDRATION_DECAY_PER_HOUR / HOUR
+Tuning.HYDRATION_DRINK_RATE = 0.3 -- per second of drinking: ~2 min from a trigger
+Tuning.THIRST_TRIGGER = { min = 55, max = 75 }
+Tuning.BOWL_WATER = 16 * Tuning.HYDRATION_DECAY_PER_HOUR -- 16 chicken-hours
+Tuning.WATERED_PLATEAU = 85 -- offline's watered value
+
+-- Happiness: satiety/hydration at or above their knee count as full;
+-- below DEHYDRATED_BELOW hydration scales happiness toward 0 (ADR-0019).
 Tuning.HAPPINESS_SATIETY_KNEE = 85
+Tuning.HAPPINESS_HYDRATION_KNEE = 80
+Tuning.DEHYDRATED_BELOW = 10
 
 -- Droppings.
 Tuning.POOP_PER_HOUR = 0.5 -- one every ~2 h

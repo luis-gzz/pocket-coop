@@ -7,6 +7,7 @@ local Clock = require("src.systems.clock")
 local Tuning = require("src.systems.tuning")
 local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
+local Bowls = require("src.systems.bowls")
 local Tooltip = require("src.ui.tooltip")
 local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
@@ -57,6 +58,11 @@ local PECK_PICK_ATTEMPTS = 5
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
+
+-- Drink: the eat sheet's head-down dip once, sips between frames 5 and 6,
+-- then raises its head (5 back to 1) once it's done.
+local DRINK_DIP_TIME = 580 -- ms, frames 1-5
+local DRINK_SIP_TIME = 800 -- ms per 5-6 cycle
 
 -- How long a chicken plays the eat animation after finishing a mealworm.
 local TREAT_EAT_DURATION = 2 -- sim-seconds
@@ -176,23 +182,45 @@ local function pickHungerState(chicken)
 	return nil
 end
 
+-- "approach" to the nearest bowl with water while thirsty, else nil.
+local function pickThirstState(chicken)
+	if not chicken.gauges:isThirsty() then
+		return nil
+	end
+	local bowl = Bowls.findNearestWithWater(chicken.view.x, chicken.view.y)
+	if bowl then
+		chicken:setTarget(bowl)
+		return "approach"
+	end
+	return nil
+end
+
+-- Hunger or thirst, whichever gauge is lower first when both are open.
+local function pickNeedState(chicken)
+	local gauges = chicken.gauges
+	if gauges.satiety <= gauges.hydration then
+		return pickHungerState(chicken) or pickThirstState(chicken)
+	end
+	return pickThirstState(chicken) or pickHungerState(chicken)
+end
+
 local function decideNextState(chicken)
-	local hungerState = pickHungerState(chicken)
-	if hungerState then
-		return hungerState
+	local needState = pickNeedState(chicken)
+	if needState then
+		return needState
 	end
 
 	chicken:setTarget(nil)
 	return (math.random() < IDLE_WANDER_SPLIT) and "idle" or "wander"
 end
 
--- Picks the next state at a wander route's end: hunger first, then the
--- idle/wander roll made when the route was planned.
+-- Picks the next state at a wander route's end: hunger/thirst first, then
+-- the idle/wander roll made when the route was planned.
 local function finishWander(chicken)
 	local route = chicken.wanderRoute
-	local hungerState = pickHungerState(chicken)
-	if hungerState then
-		chicken.machine:changeState(hungerState)
+	local needState = pickNeedState(chicken)
+	if needState then
+		chicken.machine:changeState(needState)
 	elseif route.chains then
 		chicken.continueHeading = route.endHeading
 		chicken.machine:changeState("wander")
@@ -256,6 +284,8 @@ local function consumeTreat(chicken)
 	local target = chicken.target
 	if target.gauge == "satiety" then
 		chicken.gauges:applySatiety(target.amount)
+	elseif target.gauge == "hydration" then
+		chicken.gauges:applyHydration(target.amount)
 	else
 		chicken.gauges:applyCleanliness(target.amount)
 	end
@@ -275,6 +305,34 @@ local function buildSprite(path, numFrames, frameTime, loopCount)
 	})
 	local sequenceData = { name = "play", start = 1, count = numFrames, time = frameTime, loopCount = loopCount or 0 }
 	local sprite = display.newSprite(sheet, sequenceData)
+	sprite.isVisible = false
+	return sprite
+end
+
+-- The eat sheet as a drink: dips once, then loops the head-down sip until
+-- "rise" plays, which calls sprite.onRaised when the head is back up.
+local function buildDrinkSprite(path)
+	local sheet = graphics.newImageSheet(path, {
+		width = SPRITE_SIZE,
+		height = SPRITE_SIZE,
+		numFrames = 6,
+		sheetContentWidth = SPRITE_SIZE * 6,
+		sheetContentHeight = SPRITE_SIZE,
+	})
+	local sprite = display.newSprite(sheet, {
+		{ name = "dip", start = 1, count = 5, time = DRINK_DIP_TIME, loopCount = 1 },
+		{ name = "sip", frames = { 5, 6 }, time = DRINK_SIP_TIME, loopCount = 0 },
+		{ name = "rise", frames = { 5, 4, 3, 2, 1 }, time = DRINK_DIP_TIME, loopCount = 1 },
+	})
+	sprite.firstSequence = "dip"
+	sprite:addEventListener("sprite", function(event)
+		if event.phase == "ended" and event.target.sequence == "dip" then
+			event.target:setSequence("sip")
+			event.target:play()
+		elseif event.phase == "ended" and event.target.sequence == "rise" and sprite.onRaised then
+			sprite.onRaised()
+		end
+	end)
 	sprite.isVisible = false
 	return sprite
 end
@@ -333,6 +391,7 @@ function Chicken.new(saved, layCallbacks)
 		idle = buildSprite(SHEET_PATH .. "Idle/" .. COLOR .. "ChickenIdle-Sheet.png", 2, 600),
 		walk = buildSprite(SHEET_PATH .. "Walking/" .. COLOR .. "ChickenWalking-Sheet.png", 4, 500),
 		eat = buildSprite(SHEET_PATH .. "Eating/" .. COLOR .. "ChickenEating-Sheet.png", 6, 700),
+		drink = buildDrinkSprite(SHEET_PATH .. "Eating/" .. COLOR .. "ChickenEating-Sheet.png"),
 		sit = buildSprite(SHEET_PATH .. "Sitting/" .. COLOR .. "ChickenSitting-Sheet.png", 4, 400, 1),
 	}
 	for _, sprite in pairs(self.sprites) do
@@ -352,6 +411,9 @@ function Chicken:setAnimation(name)
 	end
 	local sprite = self.sprites[name]
 	sprite.isVisible = true
+	if sprite.firstSequence then
+		sprite:setSequence(sprite.firstSequence)
+	end
 	sprite:setFrame(1)
 	sprite:play()
 	self.activeSprite = sprite
@@ -426,6 +488,7 @@ function Chicken:resetForCatchUp()
 	self:cancelNesting()
 	self:cancelBoutBreak()
 	self.gauges:resetHunger()
+	self.gauges:resetThirst()
 	if self.machine.name ~= "held" then
 		self.machine:changeState("idle")
 	end
@@ -471,12 +534,12 @@ end
 
 -- Driven every frame by garden.lua's own frame loop (not a private listener
 -- here - see garden.lua for why): drives the gauges, debits any food source
--- being eaten from, and checks for a nearby treat alert. dt is already
+-- or bowl being eaten or drunk from, and checks for a nearby treat alert. dt is already
 -- time-scaled (from Clock); dirt is the garden-wide dropping + floor egg
 -- penalty. Returns any newly spawned dropping records and whether a
 -- lay happened this call, so Garden can create their views / hatch the egg -
 -- both are Garden-owned concerns now, not this chicken's.
-function Chicken:update(dt, dirt, hasSource)
+function Chicken:update(dt, dirt, hasSource, hasWater)
 	if self.machine.name == "wander" then
 		stepWander(self, Clock.getRawDt())
 	end
@@ -487,8 +550,8 @@ function Chicken:update(dt, dirt, hasSource)
 	self.hitArea:toFront()
 
 	local isHeld = self.machine.name == "held"
-	local spawned, laid, delivered, boutDone = self.gauges:update(
-		dt, dirt, self.view.x, self.view.y, isHeld, hasSource
+	local spawned, laid, delivered, boutDone, drank = self.gauges:update(
+		dt, dirt, self.view.x, self.view.y, isHeld, hasSource, hasWater
 	)
 
 	-- Debits the food source by the satiety actually delivered this frame.
@@ -501,6 +564,23 @@ function Chicken:update(dt, dirt, hasSource)
 
 	if self.machine.name == "eat" and boutDone then
 		finishBout(self)
+	end
+
+	-- Drinks until full or the bowl runs dry, then raises its head before
+	-- moving on. A picked-up bowl is left at once, mid-approach too.
+	local state = self.machine.name
+	local bowl = self.target
+	if (state == "drink" or state == "approach") and bowl and bowl.kind == "bowl" then
+		if bowl.dragging then
+			self:setTarget(nil)
+			self.machine:changeState(decideNextState(self))
+		elseif state == "drink" and not self.drinkFinishing
+			and (not self.gauges:isThirsty() or (drank > 0 and not Bowls.drain(bowl, drank))) then
+			self.drinkFinishing = true
+			self.gauges:stopDrinking()
+			self.activeSprite:setSequence("rise")
+			self.activeSprite:play()
+		end
 	end
 
 	-- When the pecked seed runs out, pecks a nearby one in place, else hops
@@ -521,16 +601,17 @@ function Chicken:update(dt, dirt, hasSource)
 		end
 	end
 
-	-- Hunger is acted on here, not at the next re-decide, so high time scale
-	-- can't overshoot it. Interrupts idle/wander, or foraging once food appears.
-	local state = self.machine.name
+	-- Hunger and thirst are acted on here, not at the next re-decide, so high
+	-- time scale can't overshoot them. Interrupts idle/wander, or foraging
+	-- once food appears or thirst opens.
+	state = self.machine.name
 	local isForaging = state == "eat" and not self.target
 	local interruptible = state == "idle" or state == "wander"
-		or (isForaging and self.gauges:getHungerMode() == "food")
+		or (isForaging and (self.gauges:getHungerMode() == "food" or self.gauges:isThirsty()))
 	if interruptible then
-		local hungerState = pickHungerState(self)
-		if hungerState then
-			self.machine:changeState(hungerState)
+		local needState = pickNeedState(self)
+		if needState and not (isForaging and needState == "eat") then
+			self.machine:changeState(needState)
 		end
 	end
 
@@ -539,7 +620,7 @@ function Chicken:update(dt, dirt, hasSource)
 	-- already committed to a claimed treat (ADR-0018).
 	if self.machine.name ~= "held" and not self:hasTreat() then
 		local gauges = self.gauges
-		local claimed = Treats.claimNear(self, self.view.x, self.view.y, gauges.satiety, gauges.cleanliness)
+		local claimed = Treats.claimNear(self, self.view.x, self.view.y, gauges)
 		if claimed then
 			self:cancelNesting()
 			self:setTarget(claimed)
@@ -727,8 +808,9 @@ STATES = {
 		end,
 	},
 
-	-- Walks to a claimed source or treat; arrival hands off to "eat" for a
-	-- source, "eatTreat" for a mealworm, or "bathe" for ash.
+	-- Walks to a claimed source, bowl, or treat; arrival hands off to "eat"
+	-- for a source, "drink" for a bowl, "eatTreat" for a mealworm or
+	-- watermelon slice, or "bathe" for ash.
 	approach = {
 		enter = function(chicken)
 			local target = chicken.target
@@ -746,6 +828,8 @@ STATES = {
 					chicken.machine:changeState(decideNextState(chicken))
 				elseif isBath then
 					chicken.machine:changeState("bathe")
+				elseif chicken.target.kind == "bowl" then
+					chicken.machine:changeState("drink")
 				elseif chicken.target.kind == "treat" then
 					chicken.machine:changeState("eatTreat")
 				else
@@ -844,6 +928,24 @@ STATES = {
 				chicken.transitionHandle = nil
 			end
 			chicken.gauges:stopEating()
+		end,
+	},
+
+	-- Drinks from a bowl until full, in one sitting, then raises its head;
+	-- update() ends it early if the bowl runs dry or is picked up.
+	drink = {
+		enter = function(chicken)
+			chicken:setAnimation("drink")
+			chicken.gauges:startDrinking()
+			chicken.sprites.drink.onRaised = function()
+				chicken:setTarget(nil)
+				chicken.machine:changeState(decideNextState(chicken))
+			end
+		end,
+		exit = function(chicken)
+			chicken.sprites.drink.onRaised = nil
+			chicken.drinkFinishing = false
+			chicken.gauges:stopDrinking()
 		end,
 	},
 
