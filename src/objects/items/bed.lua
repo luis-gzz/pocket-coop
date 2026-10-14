@@ -2,7 +2,6 @@ local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
-local Layout = require("src.ui.layout")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -40,23 +39,10 @@ local LONG_PRESS_TIME = 350
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
--- Whether a bed centered at (x, y) would sit fully inside the play area -
--- every edge, not just its center point. Only checks the play area's static
--- bounds; overlap against other beds is Garden's own resolveBedPlacement
--- (ADR-0014), the same split Feed's computePlacement already uses for food
--- items (see mealworm.lua's resolveDrop).
-function Bed.isValidPosition(x, y)
-	local bounds = Layout.getPlayArea()
-	return x - Bed.WIDTH / 2 >= bounds.minX
-		and x + Bed.WIDTH / 2 <= bounds.maxX
-		and y - Bed.HEIGHT / 2 >= bounds.minY
-		and y + Bed.HEIGHT / 2 <= bounds.maxY
-end
-
 -- record: the { x, y, eggs } table Garden owns, so this can mutate record.x/y
 -- directly on a successful drag and Garden's own bed list stays in sync.
 -- onMoved() is called right after that mutation, so Garden can save.
--- resolvePlacement(x, y) is Garden's own bed-vs-bed overlap check
+-- resolvePlacement(x, y) is Garden's own fixture spacing check
 -- (Garden.resolveBedPlacement, ADR-0014) - it returns the final (possibly
 -- nudged) x, y on a valid drop, or nil to snap back.
 --
