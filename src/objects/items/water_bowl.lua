@@ -8,8 +8,8 @@ local Tooltip = require("src.ui.tooltip")
 -- and placement rules; this owns the display object and repositioning.
 local WaterBowl = {}
 
-local FULL_PATH = "assets/objects/water_bowl_full.png"
-local EMPTY_PATH = "assets/objects/water_bowl_empty.png"
+local FULL_PATH = "assets/objects/water_bowl_dish_full.png"
+local EMPTY_PATH = "assets/objects/water_bowl_dish_empty.png"
 local NATIVE_WIDTH, NATIVE_HEIGHT = 21, 13
 
 WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
