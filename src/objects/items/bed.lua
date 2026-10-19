@@ -8,8 +8,10 @@ local Wiggle = require("src.util.wiggle")
 -- this owns the display object and repositioning.
 local Bed = {}
 
-local IMAGE_PATH = "assets/objects/bed1.png"
-local NATIVE_WIDTH, NATIVE_HEIGHT = 23, 15
+-- A planked nesting crate. Natural, red, and blue variants sit beside it
+-- (bed_crate_*.png); walnut is the default for now.
+local IMAGE_PATH = "assets/objects/bed_crate_walnut.png"
+local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
@@ -23,7 +25,7 @@ Bed.SLOT_COUNT = 3
 -- then left, then right. Clustered closer than the bed's full width so the
 -- three read as a little pile rather than spread edge to edge. y is left to
 -- Egg.newInBed's own anchor.
-local SLOT_OFFSETS_NATIVE = { 0, -5, 5 }
+local SLOT_OFFSETS_NATIVE = { 0, -6, 6 }
 
 -- The local x offset (already scaled) for one of a bed's fixed egg slots -
 -- Garden positions each egg it attaches to a bed using this.
@@ -62,7 +64,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 		return view.y + Bed.HEIGHT / 2
 	end)
 
-	Shadow.newOval(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2 - Constants.PIXEL_SCALE
+	Shadow.new(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2
 	local nest = display.newImageRect(group, IMAGE_PATH, Bed.WIDTH, Bed.HEIGHT)
 	nest.x = 0
 	nest.y = 0
