@@ -8,8 +8,11 @@ local Tooltip = require("src.ui.tooltip")
 -- and placement rules; this owns the display object and repositioning.
 local WaterBowl = {}
 
-local FULL_PATH = "assets/objects/water_bowl_dish_full.png"
-local EMPTY_PATH = "assets/objects/water_bowl_dish_empty.png"
+local FULL_PATH = "assets/objects/water_bowl_full.png"
+local MID_PATH = "assets/objects/water_bowl_mid.png"
+local EMPTY_PATH = "assets/objects/water_bowl_empty.png"
+-- At or below this share of its water, a bowl shows the half-full sprite.
+local MID_SHARE = 0.5
 local NATIVE_WIDTH, NATIVE_HEIGHT = 21, 13
 
 WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
@@ -40,12 +43,14 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 
 	Shadow.new(group, NATIVE_WIDTH).y = WaterBowl.HEIGHT / 2
 	local full = display.newImageRect(group, FULL_PATH, WaterBowl.WIDTH, WaterBowl.HEIGHT)
+	local mid = display.newImageRect(group, MID_PATH, WaterBowl.WIDTH, WaterBowl.HEIGHT)
 	local empty = display.newImageRect(group, EMPTY_PATH, WaterBowl.WIDTH, WaterBowl.HEIGHT)
 
 	function record.updateVisual()
-		local hasWater = record.water > 0
-		full.isVisible = hasWater
-		empty.isVisible = not hasWater
+		local share = record.water / record.capacity
+		full.isVisible = share > MID_SHARE
+		mid.isVisible = share > 0 and share <= MID_SHARE
+		empty.isVisible = share <= 0
 	end
 	record.updateVisual()
 

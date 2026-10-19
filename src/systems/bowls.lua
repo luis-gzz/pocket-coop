@@ -91,6 +91,7 @@ function Bowls.drain(bowl, amount)
 		save()
 		return false
 	end
+	bowl.updateVisual() -- may cross into the half-full sprite
 	return true
 end
 
