@@ -8,4 +8,4 @@ UI art gets its own scale, `UI_PIXEL_SCALE`: about half the world's pixel size, 
 
 Anything new that draws art should size it from `PIXEL_SCALE` (world) or `UI_PIXEL_SCALE` (UI), never from a free-form fraction of either.
 
-With every scale whole, image sheet frames line up exactly, so `isImageSheetSampledInsideFrame` is turned off. That half-texel inset was a workaround for edge bleed at the old fractional scales, and at whole scales it only squished each frame's edge pixels (most visibly the tooltip's happiness face).
+With every scale whole, sprite sheets no longer need `isImageSheetSampledInsideFrame`. That half-texel inset was a workaround for edge bleed at the old fractional scales, and at whole scales it only squished each frame's edge pixels (most visibly the tooltip's happiness face), so it's off by default. The grass tileset is the exception and keeps it: tiles sit edge to edge, and their seams can still sample a neighbouring tile (thin dark lines across the ground). Grass texture hides the half-texel trim.

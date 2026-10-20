@@ -11,6 +11,9 @@ local SHEET_TILE_SIZE = 16
 -- GrassHills.png's interior (borderless) grass variants.
 local GRASS_FRAMES = { 27, 50, 59, 60 }
 
+-- Edge-to-edge tiles can still sample a neighbouring tile at their seams, so
+-- only this sheet keeps the half-texel inset (ADR-0020).
+display.setDefault("isImageSheetSampledInsideFrame", true)
 local sheet = graphics.newImageSheet(SHEET_PATH, {
 	width = SHEET_TILE_SIZE,
 	height = SHEET_TILE_SIZE,
@@ -18,6 +21,7 @@ local sheet = graphics.newImageSheet(SHEET_PATH, {
 	sheetContentWidth = SHEET_COLUMNS * SHEET_TILE_SIZE,
 	sheetContentHeight = SHEET_ROWS * SHEET_TILE_SIZE,
 })
+display.setDefault("isImageSheetSampledInsideFrame", false)
 
 local TILE_SIZE = Constants.TILE_SIZE
 
