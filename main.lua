@@ -1,5 +1,8 @@
 display.setStatusBar(display.HiddenStatusBar)
 
+-- Solar2D doesn't seed math.random, so every launch replayed the same picks.
+math.randomseed(os.time())
+
 -- Keep the 16px pixel art crisp at the non-integer scale factors the
 -- letterbox content scaling can produce across devices.
 display.setDefault("minTextureFilter", "nearest")
@@ -22,13 +25,12 @@ local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
 
 Ground.create()
 
--- The floor layer (hen beds) - created first so it's inserted, and therefore
--- always renders, behind the main world group below (ADR-0014).
+-- The floor layer (flat objects like ash) - created first so it's inserted,
+-- and therefore always renders, behind the main world group below (ADR-0014).
 YSort.createFloorLayer()
 
 -- World objects (chicken, droppings, eggs, food) depth-sort against each
--- other in this group (ADR-0005). Hen beds don't join it - see the floor
--- layer above.
+-- other in this group (ADR-0005), fixtures by their sort line (ADR-0021).
 YSort.createGroup()
 
 -- The save file is { garden = ..., feed = ... } (ADR-0007, ADR-0011).
