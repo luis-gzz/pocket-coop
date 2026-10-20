@@ -31,7 +31,8 @@ local ANCHOR_GAP = 10 * Constants.PIXEL_SCALE -- vertical gap kept between the a
 local ANCHOR_CLEARANCE = 8 * Constants.PIXEL_SCALE
 
 -- Icon rows (row.icon) replace the text label with an icon left of the bar.
-local ICON_SIZE = 8 * Constants.PIXEL_SCALE
+-- 16x16 icon art at the UI pixel scale, so every pixel is whole (ADR-0020).
+local ICON_SIZE = 16 * Constants.UI_PIXEL_SCALE
 local ICON_BAR_GAP = 3 * Constants.PIXEL_SCALE
 local ICON_ROW_GAP = 2 * Constants.PIXEL_SCALE
 local TITLE_GAP = 5 * Constants.PIXEL_SCALE -- between the title and the first row
