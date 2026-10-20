@@ -2,15 +2,16 @@ local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
-local Layout = require("src.ui.layout")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
 -- this owns the display object and repositioning.
 local Bed = {}
 
-local IMAGE_PATH = "assets/objects/bed1.png"
-local NATIVE_WIDTH, NATIVE_HEIGHT = 23, 15
+-- A planked nesting crate. Natural, red, and blue variants sit beside it
+-- (bed_crate_*.png); walnut is the default for now.
+local IMAGE_PATH = "assets/objects/bed_crate_walnut.png"
+local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
@@ -24,7 +25,7 @@ Bed.SLOT_COUNT = 3
 -- then left, then right. Clustered closer than the bed's full width so the
 -- three read as a little pile rather than spread edge to edge. y is left to
 -- Egg.newInBed's own anchor.
-local SLOT_OFFSETS_NATIVE = { 0, -5, 5 }
+local SLOT_OFFSETS_NATIVE = { 0, -6, 6 }
 
 -- The local x offset (already scaled) for one of a bed's fixed egg slots -
 -- Garden positions each egg it attaches to a bed using this.
@@ -40,23 +41,10 @@ local LONG_PRESS_TIME = 350
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
--- Whether a bed centered at (x, y) would sit fully inside the play area -
--- every edge, not just its center point. Only checks the play area's static
--- bounds; overlap against other beds is Garden's own resolveBedPlacement
--- (ADR-0014), the same split Feed's computePlacement already uses for food
--- items (see mealworm.lua's resolveDrop).
-function Bed.isValidPosition(x, y)
-	local bounds = Layout.getPlayArea()
-	return x - Bed.WIDTH / 2 >= bounds.minX
-		and x + Bed.WIDTH / 2 <= bounds.maxX
-		and y - Bed.HEIGHT / 2 >= bounds.minY
-		and y + Bed.HEIGHT / 2 <= bounds.maxY
-end
-
 -- record: the { x, y, eggs } table Garden owns, so this can mutate record.x/y
 -- directly on a successful drag and Garden's own bed list stays in sync.
 -- onMoved() is called right after that mutation, so Garden can save.
--- resolvePlacement(x, y) is Garden's own bed-vs-bed overlap check
+-- resolvePlacement(x, y) is Garden's own fixture spacing check
 -- (Garden.resolveBedPlacement, ADR-0014) - it returns the final (possibly
 -- nudged) x, y on a valid drop, or nil to snap back.
 --
@@ -76,7 +64,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 		return view.y + Bed.HEIGHT / 2
 	end)
 
-	Shadow.newOval(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2 - Constants.PIXEL_SCALE
+	Shadow.new(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2
 	local nest = display.newImageRect(group, IMAGE_PATH, Bed.WIDTH, Bed.HEIGHT)
 	nest.x = 0
 	nest.y = 0

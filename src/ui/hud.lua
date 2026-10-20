@@ -9,7 +9,7 @@ local Garden = require("src.systems.garden")
 -- the band's general role so a future stat display isn't a rename.
 local Hud = {}
 
-local ICON_NATIVE_WIDTH, ICON_NATIVE_HEIGHT = 7, 8
+local ICON_NATIVE_WIDTH, ICON_NATIVE_HEIGHT = 6, 7
 local ICON_WIDTH = ICON_NATIVE_WIDTH * Constants.PIXEL_SCALE
 local ICON_HEIGHT = ICON_NATIVE_HEIGHT * Constants.PIXEL_SCALE
 local ICON_TEXT_GAP = 5 * Constants.PIXEL_SCALE

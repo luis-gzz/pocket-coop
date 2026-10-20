@@ -23,7 +23,7 @@ _Avoid_: Island
 The player's pet, driven by a finite state machine. Stays within the play area's bounds at all times.
 
 **State** (chicken):
-One mode of chicken behavior — idle, approach, eat, bathe, wander, nest, or held — each with its own animation. The chicken is always in exactly one state.
+One mode of chicken behavior — idle, approach, eat, drink, bathe, wander, nest, or held — each with its own animation. The chicken is always in exactly one state.
 
 **Dwell time**:
 How long a chicken remains in idle before the state machine re-decides. Randomized to avoid a robotic cadence. Wander has none — it ends when its wander route does.
@@ -68,11 +68,17 @@ The satiety level (re-picked each hunger cycle, always under the forage ceiling 
 The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it gradually — mostly within a quarter hour, fully within the hour — rather than being restored directly by the act of cleaning. Time away recovers it the same way, so cleaning up and coming straight back doesn't return a spotless chicken. Ash is the one thing that bumps the gauge itself; that bump then eases back toward the target like any other value, so it lasts in a tidy garden and fades in a messy one.
 
 **Hydration**:
-The gauge tracking how watered a chicken is (0–100, 100 is fully watered). For now it always sits at 100 with no way to change it and no bearing on happiness; it exists so the tooltip shows it ahead of water being added.
+The gauge tracking how watered a chicken is (0–100, 100 is fully watered). Falls steadily over real hours — from full to empty in four — except while the chicken is drinking. Refilled only by drinking at a water bowl or by a watermelon slice; with neither, it simply runs out.
 _Avoid_: Thirst (inverted sense, same reason as hunger)
 
+**Thirst trigger**:
+The hydration level below which a chicken goes to drink, re-picked at random after every drink. Only matters while some water bowl holds water. Thirst and hunger never run at once: when both have triggered, whichever gauge is lower is seen to first.
+
+**Dehydrated**:
+A chicken whose hydration is below 10. Dehydration drags happiness down on top of the usual weighting — the closer to empty, the closer happiness gets to zero — and a happiness buff can't offset it beyond its own flat boost (see ADR-0019).
+
 **Happiness**:
-A chicken's overall well-being, computed on read from satiety, cleanliness, and any active happiness buff — never stored on its own. Weighted so that whichever of satiety/cleanliness is worse pulls the result down harder.
+A chicken's overall well-being, computed on read from satiety, cleanliness, hydration, and any active happiness buff — never stored on its own. Weighted so that whichever gauge is worst pulls the result down harder, and pulled further toward zero while dehydrated.
 _Avoid_: Mood, wellbeing
 
 **Dropping**:
@@ -102,11 +108,11 @@ The single source of simulated time every chicken's gauges advance against, repl
 A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
 **World object**:
-An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, hen beds, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, mealworms, lettuce) are depth-sorted against each other in the main sort; hen beds, seed patches, and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
+An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, fixtures, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, mealworms, watermelon slices, lettuce) are depth-sorted against each other in the main sort; hen beds, water bowls, seed patches, and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
 _Avoid_: Entity, game object (too generic — use world object specifically for things that live in the game world)
 
 **Floor layer**:
-The fixed render layer beneath the main depth sort, holding hen beds, seed patches, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms, lettuce), no matter their relative position. Hen beds are depth-sorted against each other within this layer, so overlapping beds still order correctly; seed patches and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
+The fixed render layer beneath the main depth sort, holding hen beds, water bowls, seed patches, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms, lettuce), no matter their relative position. Hen beds and water bowls are depth-sorted against each other within this layer, so overlapping fixtures still order correctly; seed patches and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
 _Avoid_: Background layer, ground layer (Ground already owns that sense)
 
 **Shadow**:
@@ -117,10 +123,43 @@ _Avoid_: Drop shadow
 A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).
 _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the value it sorts by)
 
+## Fixtures
+
+**Fixture**:
+A world object placed from the toolbar that stays for good once placed: it is never used up and can't be removed, only repositioned by holding and dragging it. A drop that would leave any part of it outside the play area snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
+_Avoid_: Building, structure
+
+**Tool**:
+A toolbar entry that never becomes a world object: dragging it out and dropping it acts on whatever it lands on, and dropping it anywhere it has nothing to act on cancels. The bucket so far.
+
+## Water
+
+**Water bowl**:
+A fixture holding water for chickens to drink. Renders in the floor layer, so a chicken drinking from it — beak in the water — always draws on top of it; casts a shadow. Any number of chickens can drink from it at once, draining it faster together. Running dry doesn't remove it — it sits empty until refilled with the bucket. Moving it while chickens drink sends them after it. Its tooltip shows how much water is left.
+_Avoid_: Waterer, trough, water source
+
+**Water** (bowl):
+How much a water bowl holds, measured in the hydration it can give: a full bowl keeps one chicken watered for sixteen hours. Drawn down only by drinking.
+_Avoid_: Capacity (that's a food source's), charges
+
+**Bucket**:
+The tool that refills water bowls: dropping it on a bowl fills that bowl to full. Dropping it on a full bowl or on nothing cancels. Free and unlimited.
+_Avoid_: Watering can
+
+**Drink**:
+The state a chicken is in while drinking from a water bowl: it dips its head and sips until hydration is full, in one sitting, then raises its head before moving on (or when the bowl runs dry). Ends early if the chicken is picked up, a treat alerts it, the bowl runs dry or is moved, or a lay comes due — its thirst stays, so it returns afterward.
+_Avoid_: Drinking (drink is the state's own name already)
+
+**Bowls** (module):
+The single shared owner of every water bowl, Feed's counterpart for water, and the one place a thirsty chicken asks where to drink. Owned by Garden alongside Feed and Treats.
+
+**Watered plateau**:
+The hydration a chicken with water available averages over its drinks. Offline catch-up holds a watered chicken there while bowls hold water, the same way the fed plateau works for satiety.
+
 ## Egg laying
 
 **Hen bed**:
-A placeable world object, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Renders in the floor layer, always behind every object in the main sort. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
+A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Renders in the floor layer, always behind every object in the main sort. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
 _Avoid_: Bed (hen bed is the canonical term, to stay unambiguous alongside other future toolbar items). "Nest" is reserved for the chicken state (see Nest) — a hen bed itself is never called a nest.
 
 **Egg slot**:
@@ -143,7 +182,7 @@ The single shared owner of every chicken, every placed hen bed, every active egg
 _Avoid_: Coop (retired — beds/eggs/droppings are no longer a separate owner from the chickens themselves)
 
 **Toolbar**:
-The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an item's slot and drag into the play area to place its item there for free; dropping outside the play area cancels. Hen bed, seed patch, lettuce, mealworm, and ash are its entries so far — adding another item is meant to be one more definition, not new UI code.
+The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an item's slot and drag into the play area to place its item there for free; dropping outside the play area cancels. A tool's slot works the same way, except the drop acts on whatever it lands on instead of placing anything. When the row is wider than the band it scrolls sideways — a sideways swipe on a slot scrolls rather than picking the item up. Hen bed, water bowl, seed patch, lettuce, mealworm, watermelon slice, ash, and the bucket are its entries so far — adding another item is meant to be one more definition, not new UI code.
 
 **Slot**:
 The Toolbar's fixed-size, uniform square background behind each item's icon. Tapping and holding anywhere within a slot's bounds — not just on its icon — starts that item's drag. An item's icon renders shrunk to fit inside its slot; the dragged ghost still renders at the item's true world size.
@@ -195,7 +234,7 @@ The single shared owner of every placed food source, and the one place a hungry 
 ## Time away
 
 **Offline catch-up**:
-Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food lasting, then food gone) instead of replaying every moment. Time away counts for at most a day. Treats are never used during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
+Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food and water each lasting, then running out) instead of replaying every moment. Time away counts for at most a day. Treats are never used during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
 _Avoid_: Offline simulation, replay (it deliberately doesn't step through time)
 
 **Offline threshold**:
@@ -211,11 +250,15 @@ The satiety a chicken with food available averages over its hunger cycles. Offli
 ## Treats
 
 **Treat**:
-Anything the player places in the play area that's used up whole by the single chicken that reaches it first, granting a one-time boost to one gauge (an amount each treat type defines) plus the happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken within alert range was doing. Once claimed, the chicken sees it through: a newer or nearer treat doesn't draw it away, and neither does a lay. Only being picked up, or the player dragging the treat away, breaks the claim. A chicken uses one even when the gauge it helps is already full. Never counts as food for hunger or foraging, even a mealworm, and never used during time away. Placement spacing matches food sources. Mealworm (satiety) and ash (cleanliness) so far.
+Anything the player places in the play area that's used up whole by the single chicken that reaches it first, granting a one-time boost to one gauge (an amount each treat type defines) plus the happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken within alert range was doing. Once claimed, the chicken sees it through: a newer or nearer treat doesn't draw it away, and neither does a lay. Only being picked up, or the player dragging the treat away, breaks the claim. A chicken uses one even when the gauge it helps is already full. Never counts as food for hunger or foraging, even a mealworm, nor as water for thirst, even a watermelon slice, and never used during time away. Placement spacing matches food sources. Mealworm (satiety), watermelon slice (hydration), and ash (cleanliness) so far.
 _Avoid_: Snack, one-shot food, pamper item (retired)
 
 **Mealworm**:
 A treat that gives satiety (+25). Eaten over a couple of seconds of the eat animation, staying in place until it's done. Depth-sorted in the main sort, just behind the chicken eating it.
+
+**Watermelon slice**:
+A treat that gives hydration (+50). Eaten like a mealworm — over a couple of seconds of the eat animation, staying in place until it's done.
+_Avoid_: Watermelon, melon
 
 **Ash**:
 The early-game treat that gives cleanliness, drawn as a patch of wood ash a little larger than a chicken, always rendered in the floor layer. The chicken that claims it walks to its center and bathes in it for a few seconds; only once the bath finishes does it get a cleanliness bump (+75) and the happiness buff, and the patch disappears. Picking the chicken up mid-bath cancels with no payoff, and the patch stays out to be claimed again. Displayed to the player as "Ash bath."
@@ -232,4 +275,4 @@ _Avoid_: Wiggle (reserved for being held)
 The single shared owner of every placed treat, Feed's counterpart for one-use items. Owned by Garden alongside Feed (see ADR-0018).
 
 **Alert priority**:
-When several treats are within a chicken's alert range, it prefers one that helps its lower gauge (a mealworm if satiety is lower than cleanliness, ash if cleanliness is lower), then the nearest. A lone treat in range is always taken, whichever gauge it helps.
+When several treats are within a chicken's alert range, it prefers one that helps its lowest gauge of satiety, cleanliness, and hydration (a mealworm, ash, or watermelon slice respectively), then the nearest. A lone treat in range is always taken, whichever gauge it helps.

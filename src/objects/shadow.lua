@@ -2,7 +2,7 @@ local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 
 -- The shadow every non-flat world object casts (CONTEXT.md's Shadow): a rounded
--- rect for items, an oval for the chicken and bed. New standing objects should add one.
+-- rect for items and fixtures, an oval for the chicken. New standing objects should add one.
 local Shadow = {}
 
 local FILL_HEX = "212123"
@@ -39,7 +39,7 @@ function Shadow.new(parent, casterNativeWidth, unit)
 	return newRows(parent, { width - 2, width, width, width - 2 }, unit or Constants.PIXEL_SCALE)
 end
 
--- The pixel-crisp oval (chicken, bed); same arguments as Shadow.new.
+-- The pixel-crisp oval (the chicken); same arguments as Shadow.new.
 function Shadow.newOval(parent, casterNativeWidth, unit)
 	local width = casterNativeWidth - 1
 	local height = math.max(3, math.floor(width / 3 + 0.5))

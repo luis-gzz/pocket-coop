@@ -3,6 +3,9 @@ local SeedPatch = require("src.objects.items.seed_patch")
 local Lettuce = require("src.objects.items.lettuce")
 local Mealworm = require("src.objects.items.mealworm")
 local Ash = require("src.objects.items.ash")
+local WaterBowl = require("src.objects.items.water_bowl")
+local Bucket = require("src.objects.items.bucket")
+local Watermelon = require("src.objects.items.watermelon")
 
 -- The single place that knows the toolbar's item list (CONTEXT.md's
 -- Toolbar) - each entry's icon/width/height/type comes straight from its
@@ -11,8 +14,11 @@ local Ash = require("src.objects.items.ash")
 -- here plus its own item file.
 return {
 	Bed.DESCRIPTOR,
+	WaterBowl.DESCRIPTOR,
+	Bucket.DESCRIPTOR,
 	SeedPatch.DESCRIPTOR,
 	Lettuce.DESCRIPTOR,
 	Mealworm.DESCRIPTOR,
+	Watermelon.DESCRIPTOR,
 	Ash.DESCRIPTOR,
 }

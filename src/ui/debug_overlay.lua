@@ -117,11 +117,15 @@ function DebugOverlay.create()
 			end)
 		end
 
-		-- Third row, full width: empty every chicken's fullness.
+		-- Third and fourth rows, full width: empty every chicken's fullness/hydration.
 		local rowWidth = #SKIP_HOURS * BUTTON_WIDTH + (#SKIP_HOURS - 1) * BUTTON_GAP
 		addButton(0, 2 * (BUTTON_HEIGHT + BUTTON_GAP), "Fullness 0", function()
 			hidePopover()
 			Garden.debugEmptyFullness()
+		end, rowWidth)
+		addButton(0, 3 * (BUTTON_HEIGHT + BUTTON_GAP), "Hydration 0", function()
+			hidePopover()
+			Garden.debugEmptyHydration()
 		end, rowWidth)
 
 		current = { dismiss = dismiss, group = group }

@@ -9,7 +9,7 @@ local Shadow = require("src.objects.shadow")
 local Egg = {}
 
 local IMAGE_PATH = "assets/fauna/ChickenEgg.png"
-local NATIVE_WIDTH, NATIVE_HEIGHT = 7, 8
+local NATIVE_WIDTH, NATIVE_HEIGHT = 6, 7
 
 Egg.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Egg.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE

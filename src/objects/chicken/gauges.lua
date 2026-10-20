@@ -1,6 +1,6 @@
 local Tuning = require("src.systems.tuning")
 
--- Per-chicken satiety/cleanliness/happiness math - pure data, no display
+-- Per-chicken satiety/cleanliness/hydration/happiness math - pure data, no display
 -- objects. Constants come from src/systems/tuning.lua (ADR-0016).
 local Gauges = {}
 Gauges.__index = Gauges
@@ -14,8 +14,8 @@ local DROPPING_JITTER_RADIUS = 10 -- world points
 Gauges.HAPPINESS_BUFF_AMOUNT = 25
 local HAPPINESS_BUFF_DURATION = 60 * 60 -- seconds
 
--- Happiness: weighted average of satiety/cleanliness where the worse of the
--- two pulls harder (lower K = harsher penalty for a lopsided pair).
+-- Happiness: weighted average of the gauges where the worse ones pull
+-- harder (lower K = harsher penalty for a lopsided set).
 local HAPPINESS_K = 12
 
 local function clamp(value, low, high)
@@ -38,13 +38,25 @@ function Gauges.easeCleanliness(current, target, dt)
 	return target + (current - target) * math.exp(-Tuning.CLEAN_EASE_RATE * dt)
 end
 
--- Happiness as a pure function, shared with offline catch-up. Satiety at or
--- above HAPPINESS_SATIETY_KNEE counts as fully fed.
-function Gauges.happinessFor(satiety, cleanliness, buffActive)
-	satiety = clamp100(satiety * 100 / Tuning.HAPPINESS_SATIETY_KNEE)
-	local weightSatiety = (100 - satiety) + HAPPINESS_K
-	local weightCleanliness = (100 - cleanliness) + HAPPINESS_K
-	local base = (weightSatiety * satiety + weightCleanliness * cleanliness) / (weightSatiety + weightCleanliness)
+-- Happiness as a pure function, shared with offline catch-up. Satiety and
+-- hydration at or above their knees count as full.
+function Gauges.happinessFor(satiety, cleanliness, hydration, buffActive)
+	local values = {
+		clamp100(satiety * 100 / Tuning.HAPPINESS_SATIETY_KNEE),
+		cleanliness,
+		clamp100(hydration * 100 / Tuning.HAPPINESS_HYDRATION_KNEE),
+	}
+	local weighted, totalWeight = 0, 0
+	for _, value in ipairs(values) do
+		local weight = (100 - value) + HAPPINESS_K
+		weighted = weighted + weight * value
+		totalWeight = totalWeight + weight
+	end
+	local base = weighted / totalWeight
+	-- Dehydrated: scaled toward 0 before the buff, so a treat still shows (ADR-0019).
+	if hydration < Tuning.DEHYDRATED_BELOW then
+		base = base * math.max(0, hydration) / Tuning.DEHYDRATED_BELOW
+	end
 	return clamp100(base + (buffActive and Gauges.HAPPINESS_BUFF_AMOUNT or 0))
 end
 
@@ -78,8 +90,7 @@ function Gauges.new(saved)
 	self.now = saved.now or 0
 	self.satiety = saved.satiety or 100
 	self.cleanliness = saved.cleanliness or 100
-	-- Pinned full until water exists; not saved and not part of happiness yet.
-	self.hydration = 100
+	self.hydration = saved.hydration or 100
 	self.happinessBuffExpiresAt = saved.happinessBuffExpiresAt or 0
 	self.satisfiedUntil = saved.satisfiedUntil or 0
 
@@ -92,6 +103,10 @@ function Gauges.new(saved)
 	if not (self.foodTrigger and self.forageTrigger and self.forageStop) then
 		self:resampleTriggers()
 	end
+
+	-- Thirst: open from crossing thirstTrigger (with water around) until 100.
+	self.thirsty = saved.thirsty or false
+	self.thirstTrigger = saved.thirstTrigger or Tuning.randomIn(Tuning.THIRST_TRIGGER)
 
 	self.poopProgress = saved.poopProgress or 0
 	self.poopThreshold = saved.poopThreshold or Tuning.randomIn(Tuning.THRESHOLD_JITTER)
@@ -106,6 +121,7 @@ function Gauges.new(saved)
 	self.isEating = false
 	self.eatingPaused = false
 	self.boutTarget = nil
+	self.isDrinking = false
 
 	return self
 end
@@ -130,6 +146,29 @@ function Gauges:resetHunger()
 	self.eatingPaused = false
 	self.boutTarget = nil
 	endHungerCycle(self)
+end
+
+local function endThirst(self)
+	self.thirsty = false
+	self.thirstTrigger = Tuning.randomIn(Tuning.THIRST_TRIGGER)
+end
+
+-- Clears any in-progress thirst, e.g. after offline catch-up.
+function Gauges:resetThirst()
+	self.isDrinking = false
+	endThirst(self)
+end
+
+function Gauges:isThirsty()
+	return self.thirsty
+end
+
+function Gauges:startDrinking()
+	self.isDrinking = true
+end
+
+function Gauges:stopDrinking()
+	self.isDrinking = false
 end
 
 function Gauges:isHungry()
@@ -191,8 +230,9 @@ function Gauges:isSatisfied()
 end
 
 -- Advances by dt (time-scaled). Returns spawned droppings, whether a lay
--- fired (never while held), satiety delivered, and whether the bout finished.
-function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource)
+-- fired (never while held), satiety delivered, whether the bout finished,
+-- and hydration drunk.
+function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater)
 	self.now = self.now + dt
 
 	local satietyBefore = self.satiety
@@ -222,6 +262,24 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource)
 		endHungerCycle(self)
 	end
 
+	local hydrationBefore = self.hydration
+	if self.isDrinking then
+		self.hydration = math.min(100, self.hydration + Tuning.HYDRATION_DRINK_RATE * dt)
+	else
+		self.hydration = clamp100(self.hydration - Tuning.HYDRATION_DECAY_RATE * dt)
+	end
+	local drank = math.max(0, self.hydration - hydrationBefore)
+
+	-- Like hunger's mode, thirst follows whether water exists right now.
+	if not hasWater then
+		self.thirsty = false
+	elseif self.hydration < self.thirstTrigger then
+		self.thirsty = true
+	end
+	if self.thirsty and self.hydration >= 100 then
+		endThirst(self)
+	end
+
 	self.cleanliness = Gauges.easeCleanliness(self.cleanliness, Gauges.cleanlinessTarget(dirt), dt)
 
 	local spawned = {}
@@ -242,7 +300,7 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource)
 		laid = true
 	end
 
-	return spawned, laid, delivered, boutDone
+	return spawned, laid, delivered, boutDone, drank
 end
 
 -- Called once a pending egg lands: spends the progress and starts the
@@ -270,6 +328,14 @@ function Gauges:applyCleanliness(amount)
 	self.cleanliness = clamp100(self.cleanliness + amount)
 end
 
+-- Instant hydration from a watermelon slice; topping off ends any thirst.
+function Gauges:applyHydration(amount)
+	self.hydration = clamp100(self.hydration + amount)
+	if self.hydration >= 100 then
+		endThirst(self)
+	end
+end
+
 -- Grants (or restarts) the happiness buff - called when a chicken finishes
 -- any treat.
 function Gauges:applyHappinessBuff()
@@ -281,7 +347,7 @@ function Gauges:isHappinessBuffActive()
 end
 
 function Gauges:getHappiness()
-	return Gauges.happinessFor(self.satiety, self.cleanliness, self:isHappinessBuffActive())
+	return Gauges.happinessFor(self.satiety, self.cleanliness, self.hydration, self:isHappinessBuffActive())
 end
 
 function Gauges:getSaveData()
@@ -289,6 +355,9 @@ function Gauges:getSaveData()
 		now = self.now,
 		satiety = self.satiety,
 		cleanliness = self.cleanliness,
+		hydration = self.hydration,
+		thirsty = self.thirsty,
+		thirstTrigger = self.thirstTrigger,
 		happinessBuffExpiresAt = self.happinessBuffExpiresAt,
 		satisfiedUntil = self.satisfiedUntil,
 		hungerMode = self.hungerMode,

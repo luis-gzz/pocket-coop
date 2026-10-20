@@ -6,6 +6,8 @@ local Tuning = require("src.systems.tuning")
 local Save = require("src.systems.save")
 local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
+local Bowls = require("src.systems.bowls")
+local Fixtures = require("src.systems.fixtures")
 local Offline = require("src.systems.offline")
 local Gauges = require("src.objects.chicken.gauges")
 local Chicken = require("src.objects.chicken.chicken")
@@ -14,8 +16,8 @@ local Egg = require("src.objects.items.egg")
 local Dropping = require("src.objects.items.dropping")
 
 -- The single shared owner of every chicken, hen bed, egg, and dropping in
--- the garden, plus the player's collected-egg count, with Feed and Treats
--- held alongside it for food sources and treats (CONTEXT.md's "Garden").
+-- the garden, plus the player's collected-egg count, with Feed, Treats, and
+-- Bowls held alongside it for food sources, treats, and water bowls (CONTEXT.md's "Garden").
 -- A hen's Gauges (its lay progress) decides WHEN she lays; this module decides WHERE the
 -- resulting egg goes and whose cleanliness a dropping counts against, since
 -- beds/eggs/droppings belong to the garden as a whole, not to any one hen
@@ -28,7 +30,10 @@ local Garden = {}
 local FLOOR_LAY_RADIUS = 3 * Constants.TILE_SIZE
 
 local chickens = {} -- array of Chicken instances
-local beds = {} -- { view, x, y, eggs = { [1..Bed.SLOT_COUNT] = egg or nil } }
+local beds = {} -- { view, x, y, width, height, eggs = { [1..Bed.SLOT_COUNT] = egg or nil } }
+Fixtures.register(function()
+	return beds
+end)
 local eggs = {} -- { view, bed (nil for a floor egg), slot (only set if bed), x, y }
 local droppings = {} -- array of Dropping view instances (each carries its own .record)
 local collectedCount = 0
@@ -92,58 +97,11 @@ local function findNearestBed(x, y, requireOpen)
 	return nearest
 end
 
--- Whether (x, y) sits within another bed's half-width AND half-height at
--- once - the "directly on top of each other" zone ADR-0014 pushes a
--- placement or drag out of. exclude skips a bed re-checking itself mid-drag.
-local function overlapsAnotherBed(x, y, exclude)
-	for _, bed in ipairs(beds) do
-		if bed ~= exclude and math.abs(x - bed.x) < Bed.WIDTH / 2 and math.abs(y - bed.y) < Bed.HEIGHT / 2 then
-			return bed
-		end
-	end
-	return nil
-end
-
--- Pushes (x, y) out along its offset from `other`'s center by just enough to
--- clear the half-width/half-height zone on whichever axis needs the smaller
--- push, so the bed lands as close as the rule allows rather than
--- overcorrecting (ADR-0014). A perfectly coincident pair picks a random
--- direction, since there's no offset to push along.
-local function separateFromBed(x, y, other)
-	local dx, dy = x - other.x, y - other.y
-	if dx == 0 and dy == 0 then
-		local angle = math.random() * math.pi * 2
-		dx, dy = math.cos(angle), math.sin(angle)
-	end
-
-	local pushX = Bed.WIDTH / 2 - math.abs(dx)
-	local pushY = Bed.HEIGHT / 2 - math.abs(dy)
-
-	if pushX <= pushY then
-		local sign = (dx > 0) and 1 or (dx < 0) and -1 or ((math.random() < 0.5) and 1 or -1)
-		return other.x + sign * (Bed.WIDTH / 2), y
-	end
-
-	local sign = (dy > 0) and 1 or (dy < 0) and -1 or ((math.random() < 0.5) and 1 or -1)
-	return x, other.y + sign * (Bed.HEIGHT / 2)
-end
-
--- Resolves a bed placement or drag to its final (x, y): rejects outright if
--- it would leave the play area (nil, nil), otherwise nudges out of another
--- bed's overlap zone if needed and re-clamps into the play area (ADR-0014).
--- exclude is the bed's own record when repositioning an existing one.
+-- Resolves a bed placement or drag to its final (x, y), or nil to reject -
+-- shared fixture spacing (ADR-0014). exclude is the bed's own record when
+-- repositioning an existing one.
 function Garden.resolveBedPlacement(x, y, exclude)
-	if not Bed.isValidPosition(x, y) then
-		return nil, nil
-	end
-
-	local overlapping = overlapsAnotherBed(x, y, exclude)
-	if overlapping then
-		x, y = separateFromBed(x, y, overlapping)
-		x, y = clampToPlayArea(x, y, Bed.WIDTH, Bed.HEIGHT)
-	end
-
-	return x, y
+	return Fixtures.resolve(x, y, Bed.WIDTH, Bed.HEIGHT, exclude)
 end
 
 -- Folds into the cleanliness target the same way droppings do (ADR-0004) -
@@ -167,6 +125,7 @@ function Garden.save()
 		garden = Garden.getSaveData(),
 		feed = Feed.getSaveData(),
 		treats = Treats.getSaveData(),
+		bowls = Bowls.getSaveData(),
 	})
 end
 
@@ -222,7 +181,7 @@ local function createBedView(bed)
 end
 
 function Garden.placeBed(x, y)
-	local bed = { x = x, y = y, eggs = {} }
+	local bed = { x = x, y = y, width = Bed.WIDTH, height = Bed.HEIGHT, eggs = {} }
 	bed.view = createBedView(bed)
 	table.insert(beds, bed)
 	Garden.save()
@@ -331,6 +290,10 @@ function Garden.tryPlace(itemType, x, y)
 		end
 		Garden.placeBed(finalX, finalY)
 		return true
+	elseif itemType == "water_bowl" then
+		return Bowls.tryPlace(x, y)
+	elseif itemType == "bucket" then
+		return Bowls.tryRefill(x, y)
 	end
 	return Feed.tryPlace(itemType, x, y) or Treats.tryPlace(itemType, x, y)
 end
@@ -340,7 +303,7 @@ end
 local function stepChickens(dt)
 	local dirt = Garden.getDirt()
 	for _, chicken in ipairs(chickens) do
-		local spawned, laid = chicken:update(dt, dirt, Feed.hasFoodSource())
+		local spawned, laid = chicken:update(dt, dirt, Feed.hasFoodSource(), Bowls.hasWater())
 		for _, record in ipairs(spawned) do
 			Garden.addDropping(record)
 		end
@@ -362,8 +325,8 @@ local function onFrame(event)
 	stepChickens(Clock.getDt())
 end
 
--- Full offline catch-up (ADR-0016): food + satiety, droppings, eggs, then
--- cleanliness, then save. Treats are left out for the live chicken.
+-- Full offline catch-up (ADR-0016): food + satiety, water + hydration,
+-- droppings, eggs, then cleanliness, then save. Treats are left out for the live chicken.
 local function catchUp(elapsedSeconds)
 	elapsedSeconds = math.min(elapsedSeconds, Tuning.OFFLINE_CAP)
 
@@ -374,11 +337,12 @@ local function catchUp(elapsedSeconds)
 		chicken:teleportTo(Chicken.randomSpot())
 	end
 
-	local input = { units = Feed.getTotalUnits(), dirt = Garden.getDirt(), chickens = {} }
+	local input = { units = Feed.getTotalUnits(), water = Bowls.getTotalWater(), dirt = Garden.getDirt(), chickens = {} }
 	for i, chicken in ipairs(chickens) do
 		local gauges = chicken.gauges
 		input.chickens[i] = {
 			satiety = gauges.satiety,
+			hydration = gauges.hydration,
 			poopProgress = gauges.poopProgress,
 			poopThreshold = gauges.poopThreshold,
 			layProgress = gauges.layProgress,
@@ -393,6 +357,7 @@ local function catchUp(elapsedSeconds)
 
 	local result = Offline.compute(input, elapsedSeconds)
 	Feed.drainOldest(result.unitsConsumed)
+	Bowls.drainOldest(result.waterConsumed)
 
 	for i, chicken in ipairs(chickens) do
 		local gauges = chicken.gauges
@@ -402,6 +367,7 @@ local function catchUp(elapsedSeconds)
 		-- Timestamp buffs (happiness, satisfied) and the lay gap simply pass.
 		gauges.now = gauges.now + elapsedSeconds
 		gauges.satiety = outcome.satiety
+		gauges.hydration = outcome.hydration
 		gauges.poopProgress = outcome.poopProgress
 		gauges.poopThreshold = outcome.poopThreshold
 		gauges.layProgress = outcome.layProgress
@@ -460,6 +426,14 @@ function Garden.debugEmptyFullness()
 	Garden.save()
 end
 
+-- Debug: drops every chicken's hydration to 0.
+function Garden.debugEmptyHydration()
+	for _, chicken in ipairs(chickens) do
+		chicken.gauges.hydration = 0
+	end
+	Garden.save()
+end
+
 -- returnAfter for the time since the last save. Returns whether a full pass
 -- ran and the real (uncapped) time away.
 function Garden.returnToNow()
@@ -508,7 +482,7 @@ function Garden.getSaveData()
 end
 
 -- saved: the full save file from src/systems/save.lua ({ garden = ..., feed
--- = ..., treats = ... }). Loads Feed and Treats first (so their items are
+-- = ..., treats = ..., bowls = ... }). Loads Feed, Treats, and Bowls first (so their items are
 -- visible on the first decide), then this module's own beds/eggs/droppings/chickens. Spawns
 -- exactly one chicken today regardless of how many are saved - the
 -- chickens array/save shape is ready for more, but nothing yet creates a
@@ -521,6 +495,8 @@ function Garden.load(saved)
 	Feed.setSaveCallback(Garden.save)
 	Treats.load(saved.treats, saved.feed and saved.feed.treats)
 	Treats.setSaveCallback(Garden.save)
+	Bowls.load(saved.bowls)
+	Bowls.setSaveCallback(Garden.save)
 
 	collectedCount = savedGarden.collectedCount or 0
 	lastUpdate = savedGarden.lastUpdate
@@ -530,7 +506,7 @@ function Garden.load(saved)
 	chickens = {}
 
 	for _, savedBed in ipairs(savedGarden.beds or {}) do
-		local bed = { x = savedBed.x, y = savedBed.y, eggs = {} }
+		local bed = { x = savedBed.x, y = savedBed.y, width = Bed.WIDTH, height = Bed.HEIGHT, eggs = {} }
 		bed.view = createBedView(bed)
 		table.insert(beds, bed)
 	end
