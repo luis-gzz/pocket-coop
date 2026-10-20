@@ -8,6 +8,7 @@ local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
 local Fixtures = require("src.systems.fixtures")
+local Footprints = require("src.systems.footprints")
 local Offline = require("src.systems.offline")
 local Gauges = require("src.objects.chicken.gauges")
 local Chicken = require("src.objects.chicken.chicken")
@@ -30,12 +31,26 @@ local Garden = {}
 local FLOOR_LAY_RADIUS = 3 * Constants.TILE_SIZE
 
 local chickens = {} -- array of Chicken instances
-local beds = {} -- { view, x, y, width, height, eggs = { [1..Bed.SLOT_COUNT] = egg or nil } }
+-- occupant: the hen standing on it, if any.
+local beds = {} -- { view, x, y, width, height, footprintShare, occupant, eggs = { [1..Bed.SLOT_COUNT] = egg or nil } }
 Fixtures.register(function()
 	return beds
 end)
 local eggs = {} -- { view, bed (nil for a floor egg), slot (only set if bed), x, y }
 local droppings = {} -- array of Dropping view instances (each carries its own .record)
+-- Floor eggs and droppings, as boxes a fixture can't be dropped on.
+Fixtures.registerItems(function()
+	local items = {}
+	for _, egg in ipairs(eggs) do
+		if not egg.bed then
+			table.insert(items, { x = egg.x, y = egg.y, width = Egg.WIDTH, height = Egg.HEIGHT })
+		end
+	end
+	for _, view in ipairs(droppings) do
+		table.insert(items, { x = view.record.x, y = view.record.y, width = Dropping.WIDTH, height = Dropping.HEIGHT })
+	end
+	return items
+end)
 local collectedCount = 0
 local lastFrameTime = nil
 -- Wall-clock time (os.time()) the simulation was last known to be current -
@@ -84,10 +99,11 @@ local function findOpenSlot(bed)
 	return nil
 end
 
-local function findNearestBed(x, y, requireOpen)
+-- requireFree also skips a bed another hen is standing on.
+local function findNearestBed(x, y, requireOpen, requireFree)
 	local nearest, nearestDistance = nil, nil
 	for _, bed in ipairs(beds) do
-		if not requireOpen or countBedEggs(bed) < Bed.SLOT_COUNT then
+		if (not requireOpen or countBedEggs(bed) < Bed.SLOT_COUNT) and not (requireFree and bed.occupant) then
 			local distance = distanceSquared(x, y, bed.x, bed.y)
 			if not nearestDistance or distance < nearestDistance then
 				nearest, nearestDistance = bed, distance
@@ -101,7 +117,13 @@ end
 -- shared fixture spacing (ADR-0014). exclude is the bed's own record when
 -- repositioning an existing one.
 function Garden.resolveBedPlacement(x, y, exclude)
-	return Fixtures.resolve(x, y, Bed.WIDTH, Bed.HEIGHT, exclude)
+	return Fixtures.resolve(x, y, Bed.WIDTH, Bed.HEIGHT, Bed.FOOTPRINT_SHARE, exclude)
+end
+
+-- The x of the slot a hen laying in this bed now would fill, or nil if full.
+function Garden.getOpenSlotX(bed)
+	local slot = findOpenSlot(bed)
+	return slot and bed.x + Bed.getSlotOffsetX(slot)
 end
 
 -- Folds into the cleanliness target the same way droppings do (ADR-0004) -
@@ -141,6 +163,7 @@ function Garden.getDirt()
 end
 
 local function insertDropping(record)
+	record.x, record.y = Footprints.pushBoxOut(record.x, record.y, Dropping.WIDTH, Dropping.HEIGHT)
 	local view = Dropping.new(record, function(droppingView)
 		Garden.removeDropping(droppingView)
 	end)
@@ -174,6 +197,7 @@ end
 
 local function createBedView(bed)
 	return Bed.new(bed, function()
+		Fixtures.notifyChanged()
 		Garden.save()
 	end, function(x, y)
 		return Garden.resolveBedPlacement(x, y, bed)
@@ -181,9 +205,10 @@ local function createBedView(bed)
 end
 
 function Garden.placeBed(x, y)
-	local bed = { x = x, y = y, width = Bed.WIDTH, height = Bed.HEIGHT, eggs = {} }
+	local bed = { x = x, y = y, width = Bed.WIDTH, height = Bed.HEIGHT, footprintShare = Bed.FOOTPRINT_SHARE, eggs = {} }
 	bed.view = createBedView(bed)
 	table.insert(beds, bed)
+	Fixtures.notifyChanged()
 	Garden.save()
 	return bed
 end
@@ -200,6 +225,7 @@ local function attachEggToBed(bed)
 end
 
 local function createFloorEgg(x, y)
+	x, y = Footprints.pushBoxOut(x, y, Egg.WIDTH, Egg.HEIGHT)
 	local egg = { bed = nil, x = x, y = y }
 	egg.view = Egg.newFloor(x, y, function()
 		Garden.collectEgg(egg)
@@ -211,11 +237,12 @@ end
 -- Decides where a hen headed to lay should walk, and what it'll do once it
 -- gets there (CONTEXT.md's Nest state) - called once when lay progress
 -- fires, and again on arrival if the chosen bed filled up in the meantime.
--- Priority: nearest bed with an open slot: else a floor spot within
+-- Priority: nearest bed with an open slot, preferring one no other hen is
+-- standing on; else a floor spot (outside any footprint) within
 -- FLOOR_LAY_RADIUS of the nearest bed (every one full); else "immediate"
 -- (no beds exist anywhere - the hen lays right where it stands, ADR-0013).
 function Garden.pickLayTarget(x, y)
-	local openBed = findNearestBed(x, y, true)
+	local openBed = findNearestBed(x, y, true, true) or findNearestBed(x, y, true)
 	if openBed then
 		return { kind = "bed", bed = openBed }
 	end
@@ -223,6 +250,7 @@ function Garden.pickLayTarget(x, y)
 	local closestBed = findNearestBed(x, y, false)
 	if closestBed then
 		local floorX, floorY = randomPointNear(closestBed.x, closestBed.y, FLOOR_LAY_RADIUS)
+		floorX, floorY = Footprints.pushBoxOut(floorX, floorY, Egg.WIDTH, Egg.HEIGHT)
 		floorX, floorY = clampToPlayArea(floorX, floorY, Egg.WIDTH, Egg.HEIGHT)
 		return { kind = "floor", x = floorX, y = floorY }
 	end
@@ -487,6 +515,13 @@ end
 -- exactly one chicken today regardless of how many are saved - the
 -- chickens array/save shape is ready for more, but nothing yet creates a
 -- second one (a small follow-up, not part of this refactor).
+-- A fixture placed or moved onto a chicken moves her out (CONTEXT.md's Footprint).
+Fixtures.onChanged(function()
+	for _, chicken in ipairs(chickens) do
+		chicken:leaveFootprints()
+	end
+end)
+
 function Garden.load(saved)
 	saved = saved or {}
 	local savedGarden = saved.garden or {}
@@ -506,7 +541,10 @@ function Garden.load(saved)
 	chickens = {}
 
 	for _, savedBed in ipairs(savedGarden.beds or {}) do
-		local bed = { x = savedBed.x, y = savedBed.y, width = Bed.WIDTH, height = Bed.HEIGHT, eggs = {} }
+		local bed = {
+			x = savedBed.x, y = savedBed.y, width = Bed.WIDTH, height = Bed.HEIGHT,
+			footprintShare = Bed.FOOTPRINT_SHARE, eggs = {},
+		}
 		bed.view = createBedView(bed)
 		table.insert(beds, bed)
 	end
@@ -528,6 +566,7 @@ function Garden.load(saved)
 	table.insert(chickens, Chicken.new(savedChickenData, {
 		pickLayTarget = Garden.pickLayTarget,
 		commitLay = Garden.commitLay,
+		getOpenSlotX = Garden.getOpenSlotX,
 	}))
 
 	Runtime:addEventListener("enterFrame", onFrame)

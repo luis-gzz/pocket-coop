@@ -9,10 +9,9 @@ local YSort = {}
 local worldGroup = nil
 local entries = {}
 
--- The floor layer (ADR-0014): a separate group created and inserted below
--- worldGroup, so anything registered here (hen beds) sorts against its own
--- kind but always renders behind every object in worldGroup regardless of
--- position - a toFront() here only ever reorders floorGroup's own children,
+-- The floor layer (ADR-0014, ADR-0021): a separate group created and
+-- inserted below worldGroup, so anything in it (flat objects like ash)
+-- always renders behind every object in worldGroup regardless of position - a toFront() here only ever reorders floorGroup's own children,
 -- never worldGroup's.
 local floorGroup = nil
 local floorEntries = {}

@@ -37,22 +37,27 @@ local function createBowl(x, y, water)
 		y = y,
 		width = WaterBowl.WIDTH,
 		height = WaterBowl.HEIGHT,
+		footprintShare = WaterBowl.FOOTPRINT_SHARE,
 		capacity = Tuning.BOWL_WATER,
 		water = water,
 		dragging = false,
 	}
-	WaterBowl.new(bowl, save, function(dropX, dropY)
-		return Fixtures.resolve(dropX, dropY, bowl.width, bowl.height, bowl)
+	WaterBowl.new(bowl, function()
+		Fixtures.notifyChanged()
+		save()
+	end, function(dropX, dropY)
+		return Fixtures.resolve(dropX, dropY, bowl.width, bowl.height, bowl.footprintShare, bowl)
 	end)
 	return bowl
 end
 
 function Bowls.tryPlace(x, y)
-	local finalX, finalY = Fixtures.resolve(x, y, WaterBowl.WIDTH, WaterBowl.HEIGHT)
+	local finalX, finalY = Fixtures.resolve(x, y, WaterBowl.WIDTH, WaterBowl.HEIGHT, WaterBowl.FOOTPRINT_SHARE)
 	if not finalX then
 		return false
 	end
 	table.insert(bowls, createBowl(finalX, finalY, Tuning.BOWL_WATER))
+	Fixtures.notifyChanged()
 	save()
 	return true
 end

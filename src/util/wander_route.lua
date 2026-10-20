@@ -1,5 +1,6 @@
 -- Plans a chicken's wander route: a random walk of waypoints run through a
 -- Catmull-Rom spline, sampled into a polyline the chicken follows by distance.
+-- Also turns a detour's corner points into a rounded route (fromPoints).
 local WanderRoute = {}
 
 local WAYPOINTS = { min = 3, max = 5 }
@@ -9,6 +10,8 @@ local MAX_EDGE_TURN = math.rad(140) -- per waypoint, with the inward bias added
 local EDGE_MARGIN = 50 -- how close to an edge before turning inward kicks in
 local SAMPLE_STEP = 4 -- points between polyline samples
 local BUILD_ATTEMPTS = 6
+-- How far before and after a corner a rounded route starts curving.
+local CORNER_RADIUS = 12
 
 local function randomIn(range)
 	return range.min + math.random() * (range.max - range.min)
@@ -82,40 +85,122 @@ local function sampleSpline(xs, ys, heading)
 	return outX, outY, math.atan2(ys[n] - ys[n - 1], xs[n] - xs[n - 1])
 end
 
-local function inBounds(xs, ys, bounds)
+-- avoid (optional) is { blocked(x, y) } for spots the route mustn't cross.
+local function isClear(xs, ys, bounds, avoid)
 	for i = 1, #xs do
 		if xs[i] < bounds.minX or xs[i] > bounds.maxX or ys[i] < bounds.minY or ys[i] > bounds.maxY then
+			return false
+		end
+		if avoid and i > 1 and avoid.blocked(xs[i], ys[i]) then
 			return false
 		end
 	end
 	return true
 end
 
+local function toRoute(xs, ys, extra)
+	local lengths = { 0 }
+	for i = 2, #xs do
+		lengths[i] = lengths[i - 1] + math.sqrt((xs[i] - xs[i - 1]) ^ 2 + (ys[i] - ys[i - 1]) ^ 2)
+	end
+	local route = { xs = xs, ys = ys, lengths = lengths, total = lengths[#lengths], cursor = 1 }
+	for key, value in pairs(extra or {}) do
+		route[key] = value
+	end
+	return route
+end
+
+-- Rounds each interior corner with a quadratic curve, then samples it.
+local function roundCorners(xs, ys)
+	local outX, outY = { xs[1] }, { ys[1] }
+	for i = 2, #xs - 1 do
+		local inLength = math.sqrt((xs[i] - xs[i - 1]) ^ 2 + (ys[i] - ys[i - 1]) ^ 2)
+		local outLength = math.sqrt((xs[i + 1] - xs[i]) ^ 2 + (ys[i + 1] - ys[i]) ^ 2)
+		local radius = math.min(CORNER_RADIUS, inLength / 2, outLength / 2)
+		if radius <= 0 then
+			outX[#outX + 1], outY[#outY + 1] = xs[i], ys[i]
+		else
+			local ax = xs[i] - (xs[i] - xs[i - 1]) / inLength * radius
+			local ay = ys[i] - (ys[i] - ys[i - 1]) / inLength * radius
+			local bx = xs[i] + (xs[i + 1] - xs[i]) / outLength * radius
+			local by = ys[i] + (ys[i + 1] - ys[i]) / outLength * radius
+			local steps = math.max(2, math.ceil(radius * 2 / SAMPLE_STEP))
+			for step = 0, steps do
+				local t = step / steps
+				local u = 1 - t
+				outX[#outX + 1] = u * u * ax + 2 * u * t * xs[i] + t * t * bx
+				outY[#outY + 1] = u * u * ay + 2 * u * t * ys[i] + t * t * by
+			end
+		end
+	end
+	outX[#outX + 1], outY[#outY + 1] = xs[#xs], ys[#ys]
+	return outX, outY
+end
+
+-- A route through a list of {x, y} points (a detour), corners rounded.
+function WanderRoute.fromPoints(points)
+	local xs, ys = {}, {}
+	for i, point in ipairs(points) do
+		xs[i], ys[i] = point.x, point.y
+	end
+	if #xs == 1 then
+		xs[2], ys[2] = xs[1], ys[1]
+	end
+	xs, ys = roundCorners(xs, ys)
+	return toRoute(xs, ys)
+end
+
+-- Last resort once every attempt crosses a footprint: moves blocked
+-- waypoints out, splices a detour into each leg, and follows that.
+local function detourWaypoints(waypointXs, waypointYs, heading, avoid)
+	local xs, ys = { waypointXs[1] }, { waypointYs[1] }
+	for i = 2, #waypointXs do
+		local toX, toY = avoid.pushOut(waypointXs[i], waypointYs[i])
+		local points = avoid.detour(xs[#xs], ys[#ys], toX, toY)
+		for j = 2, #points do
+			xs[#xs + 1], ys[#ys + 1] = points[j].x, points[j].y
+		end
+	end
+	local splineXs, splineYs, endHeading = sampleSpline(xs, ys, heading)
+	if not isClear(splineXs, splineYs, { minX = -math.huge, maxX = math.huge, minY = -math.huge, maxY = math.huge }, avoid) then
+		splineXs, splineYs = roundCorners(xs, ys)
+	end
+	return splineXs, splineYs, endHeading
+end
+
 -- heading: radians to set off along, or nil for a random direction. Retries
--- routes that leave the bounds, and clamps the last attempt as a fallback.
+-- routes that leave the bounds or cross what avoid blocks (if given), then
+-- detours around footprints and clamps the last attempt as a fallback.
+-- avoid: { blocked(x, y), pushOut(x, y), detour(ax, ay, bx, by) -> points }.
 -- Returns { xs, ys, lengths, total, endHeading, keptHeading }.
-function WanderRoute.build(fromX, fromY, heading, bounds)
+function WanderRoute.build(fromX, fromY, heading, bounds, avoid)
 	local xs, ys, endHeading, keptHeading
+	local waypointXs, waypointYs, startHeading
+	local clear = false
 	for attempt = 1, BUILD_ATTEMPTS do
 		-- Gives up on the given heading for the later attempts.
-		local startHeading = (attempt <= BUILD_ATTEMPTS / 2 and heading) or math.random() * 2 * math.pi
-		local waypointXs, waypointYs = pickWaypoints(fromX, fromY, startHeading, bounds)
+		startHeading = (attempt <= BUILD_ATTEMPTS / 2 and heading) or math.random() * 2 * math.pi
+		waypointXs, waypointYs = pickWaypoints(fromX, fromY, startHeading, bounds)
 		xs, ys, endHeading = sampleSpline(waypointXs, waypointYs, startHeading)
 		keptHeading = heading ~= nil and startHeading == heading
-		if inBounds(xs, ys, bounds) then
+		if isClear(xs, ys, bounds, avoid) then
+			clear = true
 			break
 		end
+	end
+	if not clear and avoid then
+		for i = 1, #waypointXs do
+			waypointXs[i] = clamp(waypointXs[i], bounds.minX, bounds.maxX)
+			waypointYs[i] = clamp(waypointYs[i], bounds.minY, bounds.maxY)
+		end
+		xs, ys, endHeading = detourWaypoints(waypointXs, waypointYs, startHeading, avoid)
 	end
 	for i = 1, #xs do
 		xs[i] = clamp(xs[i], bounds.minX, bounds.maxX)
 		ys[i] = clamp(ys[i], bounds.minY, bounds.maxY)
 	end
 
-	local lengths = { 0 }
-	for i = 2, #xs do
-		lengths[i] = lengths[i - 1] + math.sqrt((xs[i] - xs[i - 1]) ^ 2 + (ys[i] - ys[i - 1]) ^ 2)
-	end
-	return { xs = xs, ys = ys, lengths = lengths, total = lengths[#lengths], endHeading = endHeading, keptHeading = keptHeading, cursor = 1 }
+	return toRoute(xs, ys, { endHeading = endHeading, keptHeading = keptHeading })
 end
 
 -- Position at a distance along the route, plus the unit x-direction of travel

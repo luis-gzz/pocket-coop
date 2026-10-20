@@ -13,6 +13,7 @@ local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
 local Shadow = require("src.objects.shadow")
 local WanderRoute = require("src.util.wander_route")
+local Footprints = require("src.systems.footprints")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -53,6 +54,8 @@ local FACING_DEADZONE = 0.25
 
 -- Beak tip's forward offset from sprite center in the head-down eat frames.
 local BEAK_DX = 3.5 * DISPLAY_SCALE
+-- Drinking aims the beak into water, not at her feet: its height above them.
+local DRINK_BEAK_DY = 2.5 * DISPLAY_SCALE
 local PECK_PICK_ATTEMPTS = 5
 
 local WIGGLE_ANGLE = 8
@@ -75,6 +78,22 @@ local SHIMMY_ANGLE = 4
 local SHIMMY_SHIFT = 1
 local SHIMMY_STEP_TIME = 60
 
+-- Footprint clearance (ADR-0021): her body stays this far off a fixture's
+-- sides; only her feet count vertically. Detour corners sit a little further
+-- out so rounding them doesn't cut back in.
+local CLEARANCE_X = 6 * DISPLAY_SCALE
+local CLEARANCE_Y = 1 * DISPLAY_SCALE
+local CORNER_MARGIN = 3 * DISPLAY_SCALE
+local SPOT_ATTEMPTS = 10
+
+-- Nest: she hops onto a bed from just off its side, feet this far below
+-- its center, and sits this long before laying.
+local BED_EDGE_GAP = 3 * DISPLAY_SCALE
+local BED_STAND_DY = 2 * DISPLAY_SCALE
+local HOP_TIME = 0.45 -- seconds
+local HOP_HEIGHT = 6 -- native px (the body is in view-local units)
+local SETTLE_DURATION = 2 -- sim-seconds
+
 local STATES -- assigned near the bottom, after the methods it calls exist
 
 local function clamp(value, low, high)
@@ -94,10 +113,45 @@ local function getBounds()
 	}
 end
 
+-- Footprint queries in view coordinates: footprints work in feet y.
+local function isBlocked(x, y)
+	return Footprints.findAt(x, y + GROUND_OFFSET, CLEARANCE_X, CLEARANCE_Y) ~= nil
+end
+
+local function pushOutOfFootprints(x, y)
+	local pushedX, pushedY = Footprints.pushOut(x, y + GROUND_OFFSET, CLEARANCE_X, CLEARANCE_Y)
+	return pushedX, pushedY - GROUND_OFFSET
+end
+
+-- Corner points of a walk around every footprint, in view coordinates.
+local function findDetour(fromX, fromY, toX, toY)
+	local bounds = getBounds()
+	local points = Footprints.findPath(fromX, fromY + GROUND_OFFSET, toX, toY + GROUND_OFFSET, {
+		padX = CLEARANCE_X,
+		padY = CLEARANCE_Y,
+		margin = CORNER_MARGIN,
+		bounds = {
+			minX = bounds.minX,
+			maxX = bounds.maxX,
+			minY = bounds.minY + GROUND_OFFSET,
+			maxY = bounds.maxY + GROUND_OFFSET,
+		},
+	})
+	for _, point in ipairs(points) do
+		point.y = point.y - GROUND_OFFSET
+	end
+	return points
+end
+
+local WANDER_AVOID = { blocked = isBlocked, pushOut = pushOutOfFootprints, detour = findDetour }
+
 -- Where to stand so the beak lands on a peck point, feet level with it:
--- whichever side is the shorter walk and in bounds. The target picks a point
+-- whichever side is the shorter walk, in bounds, and clear of footprints
+-- (unless the target is the fixture being used). The target picks a point
 -- for each side's facing. Returns x, y, facing, point.
 local function pickStandSpot(chicken, target)
+	local isBowl = target.kind == "bowl"
+	local reachY = isBowl and DRINK_BEAK_DY or 0
 	local bounds = getBounds()
 	local fromX, fromY = chicken.view.x, chicken.view.y
 	local point
@@ -106,9 +160,10 @@ local function pickStandSpot(chicken, target)
 		for _, facing in ipairs({ 1, -1 }) do
 			point = target.pickPeckPoint(facing)
 			local x = point.x - facing * BEAK_DX
-			local y = point.y - GROUND_OFFSET
+			local y = point.y + reachY - GROUND_OFFSET
 			local distance = (x - fromX) ^ 2 + (y - fromY) ^ 2
 			local inBounds = x >= bounds.minX and x <= bounds.maxX and y >= bounds.minY and y <= bounds.maxY
+				and (isBowl or not isBlocked(x, y))
 			if inBounds and (not bestDistance or distance < bestDistance) then
 				bestX, bestY, bestFacing, bestPoint, bestDistance = x, y, facing, point, distance
 			end
@@ -118,30 +173,81 @@ local function pickStandSpot(chicken, target)
 		end
 	end
 	local x = clamp(point.x - BEAK_DX, bounds.minX, bounds.maxX)
-	local y = clamp(point.y - GROUND_OFFSET, bounds.minY, bounds.maxY)
+	local y = clamp(point.y + reachY - GROUND_OFFSET, bounds.minY, bounds.maxY)
 	return x, y, (point.x < x) and -1 or 1, point
 end
 
--- Walks to (destX, destY), then faces arriveFacing (if given) and calls onArrive.
+-- Walks to (destX, destY) around footprints, then faces arriveFacing (if
+-- given) and calls onArrive. Stepped in update; stopWalk() abandons it.
 local function walkTo(chicken, destX, destY, arriveFacing, onArrive)
 	chicken:setAnimation("walk")
 	chicken:setFacing(destX < chicken.view.x and -1 or 1)
+	chicken.walk = {
+		route = WanderRoute.fromPoints(findDetour(chicken.view.x, chicken.view.y, destX, destY)),
+		distance = 0,
+		destX = destX,
+		destY = destY,
+		arriveFacing = arriveFacing,
+		onArrive = onArrive,
+	}
+end
 
-	local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
-	local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
+local function stepWalk(chicken, realDt)
+	local walk = chicken.walk
+	walk.distance = math.min(walk.route.total, walk.distance + WANDER_SPEED * realDt)
+	local x, y, dirX = WanderRoute.sample(walk.route, walk.distance)
+	chicken.view.x, chicken.view.y = x, y
+	if math.abs(dirX) > FACING_DEADZONE then
+		chicken:setFacing(dirX < 0 and -1 or 1)
+	end
+	if walk.distance >= walk.route.total then
+		chicken.walk = nil
+		if walk.arriveFacing then
+			chicken:setFacing(walk.arriveFacing)
+		end
+		walk.onArrive()
+	end
+end
 
-	chicken.transitionHandle = transition.to(chicken.view, {
-		x = destX,
-		y = destY,
-		time = duration,
-		onComplete = function()
-			chicken.transitionHandle = nil
-			if arriveFacing then
-				chicken:setFacing(arriveFacing)
-			end
-			onArrive()
-		end,
-	})
+-- Hops in an arc to (destX, destY), then calls onLand. Stepped in update.
+local function hopTo(chicken, destX, destY, onLand)
+	chicken:setAnimation("walk")
+	chicken:setFacing(destX < chicken.view.x and -1 or (destX > chicken.view.x and 1 or 0))
+	chicken.hop = { fromX = chicken.view.x, fromY = chicken.view.y, toX = destX, toY = destY, elapsed = 0, onLand = onLand }
+end
+
+local function stepHop(chicken, realDt)
+	local hop = chicken.hop
+	hop.elapsed = hop.elapsed + realDt
+	local t = math.min(1, hop.elapsed / HOP_TIME)
+	chicken.view.x = hop.fromX + (hop.toX - hop.fromX) * t
+	chicken.view.y = hop.fromY + (hop.toY - hop.fromY) * t
+	chicken.body.y = -math.sin(math.pi * t) * HOP_HEIGHT
+	if t >= 1 then
+		chicken.hop = nil
+		chicken.body.y = 0
+		hop.onLand()
+	end
+end
+
+-- Just off one side of a bed (side -1 or 1), feet midway down its footprint.
+local function bedSideSpot(bed, side)
+	local rect = Footprints.rect(bed)
+	return bed.x + side * (bed.width / 2 + BED_EDGE_GAP), (rect.minY + rect.maxY) / 2 - GROUND_OFFSET
+end
+
+-- The side nearer (x), unless it's out of bounds or blocked by another fixture.
+local function pickBedSide(bed, x)
+	local bounds = getBounds()
+	local preferred = (x < bed.x) and -1 or 1
+	for _, side in ipairs({ preferred, -preferred }) do
+		local spotX, spotY = bedSideSpot(bed, side)
+		local clear = Footprints.findAt(spotX, spotY + GROUND_OFFSET, CLEARANCE_X, CLEARANCE_Y, bed) == nil
+		if spotX >= bounds.minX and spotX <= bounds.maxX and clear then
+			return side
+		end
+	end
+	return preferred
 end
 
 -- Walks to a stand spot, then faces the peck point and calls onArrive.
@@ -253,8 +359,8 @@ local function stepWander(chicken, realDt)
 	end
 end
 
--- Thin debug-only line along a wander route.
-local function drawWanderRoute(route)
+-- Thin debug-only line along a wander or walk route.
+local function drawRoute(route)
 	local xs, ys = route.xs, route.ys
 	if #xs < 2 then
 		return nil
@@ -361,8 +467,13 @@ function Chicken.new(saved, layCallbacks)
 	self.view.xScale = DISPLAY_SCALE
 	self.view.yScale = DISPLAY_SCALE
 	self.facing = 1
+	-- Standing on a hen bed, she draws in front of it and its eggs.
 	YSort.add(self.view, function(view)
-		return view.y + GROUND_OFFSET
+		local depth = view.y + GROUND_OFFSET
+		if self.mountedBed then
+			depth = math.max(depth, self.mountedBed.y + self.mountedBed.height / 2 + 1)
+		end
+		return depth
 	end)
 
 	-- view is already scaled by DISPLAY_SCALE, so the shadow's unit is 1.
@@ -399,6 +510,7 @@ function Chicken.new(saved, layCallbacks)
 	end
 
 	self:setupTouch()
+	self:teleportTo(pushOutOfFootprints(self.view.x, self.view.y))
 	self.machine = StateMachine.new(self, STATES, "idle")
 
 	return self
@@ -517,12 +629,174 @@ function Chicken:getPosition()
 	return self.view.x, self.view.y
 end
 
--- A random point within the chicken's movement bounds, where it reappears
--- after offline catch-up.
+-- A random point within the chicken's movement bounds and clear of
+-- footprints, where it reappears after offline catch-up.
 function Chicken.randomSpot()
 	local bounds = getBounds()
-	return bounds.minX + math.random() * (bounds.maxX - bounds.minX),
-		bounds.minY + math.random() * (bounds.maxY - bounds.minY)
+	local x, y
+	for _ = 1, SPOT_ATTEMPTS do
+		x = bounds.minX + math.random() * (bounds.maxX - bounds.minX)
+		y = bounds.minY + math.random() * (bounds.maxY - bounds.minY)
+		if not isBlocked(x, y) then
+			break
+		end
+	end
+	return x, y
+end
+
+-- Debug: whether every chicken draws the route it's following.
+Chicken.showRoutes = false
+
+function Chicken.setShowRoutes(value)
+	Chicken.showRoutes = value
+end
+
+-- Keeps the debug route line in step with whichever route she's on.
+function Chicken:updateRouteLine()
+	local route = Chicken.showRoutes and (self.wanderRoute or (self.walk and self.walk.route)) or nil
+	if route == self.routeLineFor then
+		return
+	end
+	if self.routeLine then
+		self.routeLine:removeSelf()
+		self.routeLine = nil
+	end
+	self.routeLineFor = route
+	if route then
+		self.routeLine = drawRoute(route)
+	end
+end
+
+function Chicken:stopWalk()
+	self.walk = nil
+end
+
+function Chicken:stopHop()
+	self.hop = nil
+	self.body.y = 0
+end
+
+function Chicken:mount(bed)
+	self.mountedBed = bed
+	bed.occupant = self
+end
+
+function Chicken:dismount()
+	if self.mountedBed and self.mountedBed.occupant == self then
+		self.mountedBed.occupant = nil
+	end
+	self.mountedBed = nil
+end
+
+-- The lay target went stale on arrival: lays at once if no bed exists now,
+-- otherwise heads for a fresh target.
+function Chicken:retargetLay()
+	local freshTarget = self.layCallbacks.pickLayTarget(self.view.x, self.view.y)
+	if freshTarget.kind == "immediate" then
+		self.layTarget = freshTarget
+		self:layAndMoveOn()
+	else
+		self.layTarget = freshTarget
+		self.machine:changeState("nest")
+	end
+end
+
+-- Lays where she stands (a floor spot, or no bed at all), then re-decides.
+function Chicken:layAndMoveOn()
+	if self.layCallbacks.commitLay(self.layTarget, self.view.x, self.view.y) then
+		self.layTarget = nil
+		self.gauges:markLaid()
+		self.machine:changeState(decideNextState(self))
+	else
+		self:retargetLay()
+	end
+end
+
+-- Lays into the bed she's sitting on and hops off toward her next
+-- destination (the side she came up, if it has none). A bed that filled up
+-- meanwhile sends her back down to look again.
+function Chicken:layAndHopOff(bed, cameSide)
+	if not self.layCallbacks.commitLay(self.layTarget, self.view.x, self.view.y) then
+		hopTo(self, bedSideSpot(bed, cameSide))
+		self.hop.onLand = function()
+			self:dismount()
+			self:retargetLay()
+		end
+		return
+	end
+	self.layTarget = nil
+	self.gauges:markLaid()
+
+	local nextState = decideNextState(self)
+	local side = cameSide
+	if self.target and self.target.x then
+		side = (self.target.x < bed.x) and -1 or 1
+	end
+	hopTo(self, bedSideSpot(bed, side))
+	self.hop.onLand = function()
+		self:dismount()
+		self.machine:changeState(nextState)
+	end
+end
+
+-- A bed picked up while she's on it or heading to it: she hops down (or
+-- stops) and waits, then heads for it again once it's put down.
+function Chicken:followMovedBed()
+	local target = self.layTarget
+	if self.machine.name ~= "nest" or not target or target.kind ~= "bed" then
+		return
+	end
+	local bed = target.bed
+	if bed.dragging and not self.nestWaiting then
+		self.nestWaiting = true
+		self:stopWalk()
+		Clock.cancel(self.settleHandle)
+		self.settleHandle = nil
+		if self.mountedBed then
+			-- record x/y stay put until the drop, so this is where it was.
+			self:stopHop()
+			hopTo(self, bedSideSpot(bed, pickBedSide(bed, self.view.x)))
+			self.hop.onLand = function()
+				self:dismount()
+				self:setAnimation("idle")
+			end
+		else
+			self:stopHop()
+			self:setAnimation("idle")
+		end
+	elseif self.nestWaiting and not bed.dragging and not self.hop then
+		self.layTarget = self.layCallbacks.pickLayTarget(self.view.x, self.view.y)
+		self.machine:changeState("nest")
+	end
+end
+
+-- After a fixture is placed or moved (CONTEXT.md's Footprint): steps out of
+-- any footprint she's now inside, and re-plans whatever walk she's on.
+function Chicken:leaveFootprints()
+	local state = self.machine.name
+	if state == "held" or self.mountedBed then
+		return
+	end
+	local exclude = (self.target and self.target.kind == "bowl") and self.target or nil
+	local x, y = self.view.x, self.view.y
+	local inside = Footprints.findAt(x, y + GROUND_OFFSET, CLEARANCE_X, CLEARANCE_Y, exclude) ~= nil
+	if inside then
+		local bounds = getBounds()
+		x, y = pushOutOfFootprints(x, y)
+		self:teleportTo(clamp(x, bounds.minX, bounds.maxX), clamp(y, bounds.minY, bounds.maxY))
+	end
+
+	if state == "wander" then
+		self.machine:changeState("wander")
+	elseif self.walk then
+		local walk = self.walk
+		walkTo(self, walk.destX, walk.destY, walk.arriveFacing, walk.onArrive)
+	elseif inside and state == "nest" then
+		self.machine:changeState("nest")
+	elseif inside and state ~= "idle" then
+		self:setTarget(nil)
+		self.machine:changeState(decideNextState(self))
+	end
 end
 
 -- Moves the chicken instantly, hit target included. Callers stop any walk
@@ -542,7 +816,14 @@ end
 function Chicken:update(dt, dirt, hasSource, hasWater)
 	if self.machine.name == "wander" then
 		stepWander(self, Clock.getRawDt())
+	elseif self.walk then
+		stepWalk(self, Clock.getRawDt())
 	end
+	if self.hop then
+		stepHop(self, Clock.getRawDt())
+	end
+	self:followMovedBed()
+	self:updateRouteLine()
 
 	-- Keeps the hit target glued to the chicken and always frontmost.
 	self.hitArea.x = self.view.x
@@ -586,7 +867,7 @@ function Chicken:update(dt, dirt, hasSource, hasWater)
 	-- When the pecked seed runs out, pecks a nearby one in place, else hops
 	-- to another - same bout, paused until it arrives so no seed goes mid-walk.
 	local target = self.target
-	if self.machine.name == "eat" and target and target.hasPeckPoint and not self.transitionHandle
+	if self.machine.name == "eat" and target and target.hasPeckPoint and not self.walk
 		and not target.hasPeckPoint(self.peckPoint) then
 		local nearby = target.findNearbyPeckPoint and target.findNearbyPeckPoint(self.peckPoint)
 		if nearby then
@@ -618,7 +899,7 @@ function Chicken:update(dt, dirt, hasSource, hasWater)
 	-- A treat alert is checked every frame and preempts whatever the
 	-- chicken is doing, including a nest walk - except while held or
 	-- already committed to a claimed treat (ADR-0018).
-	if self.machine.name ~= "held" and not self:hasTreat() then
+	if self.machine.name ~= "held" and not self:hasTreat() and not self.mountedBed then
 		local gauges = self.gauges
 		local claimed = Treats.claimNear(self, self.view.x, self.view.y, gauges)
 		if claimed then
@@ -737,6 +1018,9 @@ function Chicken:setupTouch()
 				elseif self.machine.name == "held" then
 					-- Releasing in place synthesizes a tap; don't let it close the tooltip.
 					Tooltip.ignoreNextTap()
+					local bounds = getBounds()
+					local x, y = pushOutOfFootprints(self.view.x, self.view.y)
+					self:teleportTo(clamp(x, bounds.minX, bounds.maxX), clamp(y, bounds.minY, bounds.maxY))
 					self.machine:changeState(decideNextState(self))
 				end
 			end
@@ -838,19 +1122,18 @@ STATES = {
 			end)
 		end,
 		exit = function(chicken)
-			if chicken.transitionHandle then
-				transition.cancel(chicken.transitionHandle)
-				chicken.transitionHandle = nil
-			end
+			chicken:stopWalk()
 		end,
 	},
 
 	-- Walks to wherever the hen will lay - a bed with an open slot, or a
 	-- floor spot near the nearest bed if every bed is full (chicken.layTarget,
-	-- set by Chicken:beginNesting). Re-validates on arrival via commitLay,
-	-- since the target can go stale (another hen fills the last slot while
-	-- this one is still walking) - a stale bed re-decides and re-enters nest
-	-- rather than laying somewhere no longer valid (ADR-0013).
+	-- set by Chicken:beginNesting). For a bed she walks around to one side,
+	-- hops up over the slot she'll fill, sits a moment, and the egg appears
+	-- as she hops off. Re-validates before hopping up and again at the lay,
+	-- since the target can go stale (another hen fills the last slot) - a
+	-- stale bed re-decides and re-enters nest rather than laying somewhere no
+	-- longer valid (ADR-0013).
 	nest = {
 		enter = function(chicken)
 			local target = chicken.layTarget
@@ -859,59 +1142,42 @@ STATES = {
 				return
 			end
 
-			chicken:setAnimation("walk")
-
-			local destX, destY
-			if target.kind == "bed" then
-				destX, destY = target.bed.x, target.bed.y
-			else
-				destX, destY = target.x, target.y
+			if target.kind ~= "bed" then
+				local bounds = getBounds()
+				local destX = clamp(target.x, bounds.minX, bounds.maxX)
+				local destY = clamp(target.y, bounds.minY, bounds.maxY)
+				walkTo(chicken, destX, destY, nil, function()
+					chicken:layAndMoveOn()
+				end)
+				return
 			end
-			-- A bed can sit right at the play area's edge, just outside the
-			-- chicken's own (slightly more inset) movement bounds - clamped
-			-- the same way pickStandSpot already is.
-			local bounds = getBounds()
-			destX = clamp(destX, bounds.minX, bounds.maxX)
-			destY = clamp(destY, bounds.minY, bounds.maxY)
-			chicken:setFacing(destX < chicken.view.x and -1 or 1)
 
-			local distance = math.sqrt((destX - chicken.view.x) ^ 2 + (destY - chicken.view.y) ^ 2)
-			local duration = math.max(200, (distance / WANDER_SPEED) * 1000)
-
-			chicken.transitionHandle = transition.to(chicken.view, {
-				x = destX,
-				y = destY,
-				time = duration,
-				onComplete = function()
-					chicken.transitionHandle = nil
-					local reachedTarget = chicken.layTarget
-					chicken.layTarget = nil
-
-					if chicken.layCallbacks.commitLay(reachedTarget, chicken.view.x, chicken.view.y) then
-						chicken.gauges:markLaid()
-						chicken.machine:changeState(decideNextState(chicken))
-						return
-					end
-
-					-- The targeted bed filled up while walking - re-decide
-					-- from here rather than falling back to the floor outright.
-					local freshTarget = chicken.layCallbacks.pickLayTarget(chicken.view.x, chicken.view.y)
-					if freshTarget.kind == "immediate" then
-						chicken.layCallbacks.commitLay(freshTarget, chicken.view.x, chicken.view.y)
-						chicken.gauges:markLaid()
-						chicken.machine:changeState(decideNextState(chicken))
-					else
-						chicken.layTarget = freshTarget
-						chicken.machine:changeState("nest")
-					end
-				end,
-			})
+			local bed = target.bed
+			local side = pickBedSide(bed, chicken.view.x)
+			local sideX, sideY = bedSideSpot(bed, side)
+			walkTo(chicken, sideX, sideY, -side, function()
+				local slotX = chicken.layCallbacks.getOpenSlotX(bed)
+				if not slotX then
+					chicken:retargetLay()
+					return
+				end
+				chicken:mount(bed)
+				hopTo(chicken, slotX, bed.y + BED_STAND_DY - GROUND_OFFSET, function()
+					chicken:setAnimation("sit")
+					chicken.settleHandle = Clock.after(SETTLE_DURATION, function()
+						chicken.settleHandle = nil
+						chicken:layAndHopOff(bed, side)
+					end)
+				end)
+			end)
 		end,
 		exit = function(chicken)
-			if chicken.transitionHandle then
-				transition.cancel(chicken.transitionHandle)
-				chicken.transitionHandle = nil
-			end
+			chicken:stopWalk()
+			chicken:stopHop()
+			Clock.cancel(chicken.settleHandle)
+			chicken.settleHandle = nil
+			chicken.nestWaiting = false
+			chicken:dismount()
 		end,
 	},
 
@@ -923,10 +1189,7 @@ STATES = {
 			chicken.gauges:startBout(chicken.target ~= nil)
 		end,
 		exit = function(chicken)
-			if chicken.transitionHandle then
-				transition.cancel(chicken.transitionHandle)
-				chicken.transitionHandle = nil
-			end
+			chicken:stopWalk()
 			chicken.gauges:stopEating()
 		end,
 	},
@@ -1000,22 +1263,15 @@ STATES = {
 				chicken:setAnimation("walk")
 			end
 
-			local route = WanderRoute.build(chicken.view.x, chicken.view.y, heading, getBounds())
+			local route = WanderRoute.build(chicken.view.x, chicken.view.y, heading, getBounds(), WANDER_AVOID)
 			route.chains = math.random() >= IDLE_WANDER_SPLIT
 			route.easeIn = not route.keptHeading
 			route.easeOut = not route.chains
 			chicken.wanderRoute = route
 			chicken.wanderDistance = 0
-			if DEBUG_MODE then
-				chicken.wanderLine = drawWanderRoute(route)
-			end
 		end,
 		exit = function(chicken)
 			chicken.wanderRoute = nil
-			if chicken.wanderLine then
-				chicken.wanderLine:removeSelf()
-				chicken.wanderLine = nil
-			end
 		end,
 	},
 
