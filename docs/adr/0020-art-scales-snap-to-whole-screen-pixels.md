@@ -7,3 +7,5 @@ We now treat `computePixelScale()` as a target and snap it to whole screen pixel
 UI art gets its own scale, `UI_PIXEL_SCALE`: about half the world's pixel size, also whole. Tooltip icons can therefore stay small and fine without going uneven. Toolbar icons shrink into their slots only by whole steps (`snapPpa`), capped at world size, rather than by an arbitrary contain-fit.
 
 Anything new that draws art should size it from `PIXEL_SCALE` (world) or `UI_PIXEL_SCALE` (UI), never from a free-form fraction of either.
+
+With every scale whole, image sheet frames line up exactly, so `isImageSheetSampledInsideFrame` is turned off. That half-texel inset was a workaround for edge bleed at the old fractional scales, and at whole scales it only squished each frame's edge pixels (most visibly the tooltip's happiness face).
