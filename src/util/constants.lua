@@ -36,7 +36,23 @@ local function computePixelScale()
 	return scale
 end
 
-Constants.PIXEL_SCALE = computePixelScale()
+-- Real screen pixels per content point (letterbox keeps X and Y equal).
+Constants.DEVICE_SCALE = 1 / display.contentScaleX
+
+-- Screen pixels per world art pixel, snapped to a whole number so every
+-- pixel draws the same size (ADR-0020).
+Constants.WORLD_PPA = math.max(1, math.floor(computePixelScale() * Constants.DEVICE_SCALE + 0.5))
+Constants.PIXEL_SCALE = Constants.WORLD_PPA / Constants.DEVICE_SCALE
+
+-- UI art (tooltip icons) at about half the world's pixel size, also whole.
+Constants.UI_PPA = math.max(1, math.floor(Constants.WORLD_PPA / 2 + 0.5))
+Constants.UI_PIXEL_SCALE = Constants.UI_PPA / Constants.DEVICE_SCALE
+
+-- Largest whole screen-pixels-per-art-pixel that fits nativeSize art pixels
+-- into maxDeviceSize screen pixels (at least 1).
+function Constants.snapPpa(maxDeviceSize, nativeSize)
+	return math.max(1, math.floor(maxDeviceSize / nativeSize + 1e-6))
+end
 
 -- Matches the grass tileset's native grid (assets/GrassTileset), which is
 -- also the same grid the chicken and fence art are drawn on.

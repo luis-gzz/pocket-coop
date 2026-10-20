@@ -23,7 +23,7 @@ local SLOT_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 
 -- Every item gets the same fixed-size square slot regardless of its own
 -- icon's dimensions - the resting icon inside is scaled down to fit (see
--- containFit), decoupling toolbar row layout from any one item's art size.
+-- wholeFit), decoupling toolbar row layout from any one item's art size.
 -- The bottom band's height is derived from the play area's leftover space
 -- (ADR-0009), not fixed, so this is sized to comfortably fit within it on
 -- real devices rather than pinned a few units under a fixed band height.
@@ -42,13 +42,18 @@ local SCROLL_SLOP = 4 * Constants.PIXEL_SCALE
 
 local ITEMS = Catalog
 
--- Preserve-aspect-ratio, centered ("contain") fit of (width, height) into a
--- square box of availableSize. Used to derive a slot's resting-icon size
--- from the icon's native size (iconWidth/Height, else the item's world
--- size) - the dragged ghost still uses the item's real width/height.
-local function containFit(width, height, availableSize)
-	local scale = math.min(availableSize / width, availableSize / height)
-	return width * scale, height * scale
+-- Fits an item's icon into a square box of availableSize at a whole number
+-- of screen pixels per art pixel, never above world size (ADR-0020). Native
+-- size is iconWidth/Height if given, else the world size over PIXEL_SCALE.
+local function wholeFit(item, availableSize)
+	local nativeWidth = item.iconWidth or math.floor(item.width / Constants.PIXEL_SCALE + 0.5)
+	local nativeHeight = item.iconHeight or math.floor(item.height / Constants.PIXEL_SCALE + 0.5)
+	local ppa = math.min(
+		Constants.WORLD_PPA,
+		Constants.snapPpa(availableSize * Constants.DEVICE_SCALE, math.max(nativeWidth, nativeHeight))
+	)
+	local unit = ppa / Constants.DEVICE_SCALE
+	return nativeWidth * unit, nativeHeight * unit
 end
 
 function Toolbar.create()
@@ -87,12 +92,12 @@ function Toolbar.create()
 		background.strokeWidth = SLOT_STROKE_WIDTH
 		background:setStrokeColor(Color.hexToRGB(SLOT_STROKE_HEX))
 
-		-- Resting icon: contain-fit within the slot's padded content box, a
+		-- Resting icon: whole-pixel fit within the slot's padded content box, a
 		-- smaller "button" rendering decoupled from the item's actual
 		-- in-world footprint. The dragged ghost below stays at full
 		-- item.width/height so the player can judge true placement fit.
 		local contentSize = SLOT_SIZE - SLOT_PADDING * 2
-		local restWidth, restHeight = containFit(item.iconWidth or item.width, item.iconHeight or item.height, contentSize)
+		local restWidth, restHeight = wholeFit(item, contentSize)
 		local icon = display.newImageRect(slotGroup, item.icon, restWidth, restHeight)
 		icon.x = SLOT_SIZE / 2
 		icon.y = SLOT_SIZE / 2

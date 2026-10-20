@@ -5,12 +5,9 @@ display.setStatusBar(display.HiddenStatusBar)
 display.setDefault("minTextureFilter", "nearest")
 display.setDefault("magTextureFilter", "nearest")
 
--- At those same non-integer scales the GPU can land a sample just past a
--- frame's edge, and with nearest filtering that pulls in a whole texel from
--- the neighboring frame in the sheet - showing up as thin dark lines along
--- tile/sprite edges. This insets every image sheet frame's sampling by half a
--- texel. Must be set before any graphics.newImageSheet call.
-display.setDefault("isImageSheetSampledInsideFrame", true)
+-- Art scales are whole screen pixels (ADR-0020), so frames line up exactly;
+-- the half-texel inset would only squish each frame's edge pixels.
+display.setDefault("isImageSheetSampledInsideFrame", false)
 
 local Ground = require("src.systems.ground")
 local YSort = require("src.systems.y_sort")
