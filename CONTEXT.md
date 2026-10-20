@@ -108,11 +108,11 @@ The single source of simulated time every chicken's gauges advance against, repl
 A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
 **World object**:
-An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, fixtures, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, mealworms, watermelon slices, lettuce) are depth-sorted against each other in the main sort; hen beds, water bowls, seed patches, and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
+An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, fixtures, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, hen beds, water bowls, mealworms, watermelon slices, lettuce) are depth-sorted against each other in the main sort; seed patches and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
 _Avoid_: Entity, game object (too generic — use world object specifically for things that live in the game world)
 
 **Floor layer**:
-The fixed render layer beneath the main depth sort, holding hen beds, water bowls, seed patches, and ash — all always draw behind every world object in the main sort (the chicken, droppings, eggs, mealworms, lettuce), no matter their relative position. Hen beds and water bowls are depth-sorted against each other within this layer, so overlapping fixtures still order correctly; seed patches and ash aren't sorted within it at all, since their placement already keeps them from overlapping each other. Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
+The fixed render layer beneath the main depth sort, holding the flat world objects — seed patches and ash — which always draw behind every world object in the main sort, no matter their relative position. They aren't sorted within it at all, since their placement already keeps them from overlapping each other. Fixtures used to live here too; they now stand in the main sort (see Sort line). Distinct from a floor egg's "floor" (meaning: laid outside any bed) — here "floor" names the render layer, not a lack of containment.
 _Avoid_: Background layer, ground layer (Ground already owns that sense)
 
 **Shadow**:
@@ -120,7 +120,7 @@ A soft patch of shade a world object casts on the ground at its base. Every worl
 _Avoid_: Drop shadow
 
 **Depth**:
-A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006).
+A world object's front-to-back render order relative to other world objects: whichever is lower on screen renders in front. Depth is a world object's bottom edge, not its center — every world object type is responsible for supplying its own offset to reach it (see ADR-0006). Fixtures are the exception: their depth is their sort line, not their bottom edge.
 _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the value it sorts by)
 
 ## Fixtures
@@ -129,13 +129,20 @@ _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the v
 A world object placed from the toolbar that stays for good once placed: it is never used up and can't be removed, only repositioned by holding and dragging it. A drop that would leave any part of it outside the play area snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
 _Avoid_: Building, structure
 
+**Footprint**:
+The part of a fixture a chicken can't walk through: the fixture's full width, from its bottom edge up to a line a short way below its top (a share each fixture type sets — a quarter of its height by default). The strip above the footprint is the fixture's top, which a chicken can pass behind. Chickens always walk around a footprint, keeping their body clear of its sides, unless they are using that fixture: a drinking chicken's head reaches over a water bowl's rim, and a nesting hen hops up onto a hen bed. Nothing else rests inside a footprint: food, treats, droppings, and floor eggs that would land there are nudged just outside it; a fixture can't be dragged on top of them; and a chicken caught inside one (dropped there, or a fixture placed on her) is moved out to its nearest edge.
+_Avoid_: Hitbox (that's the touch target for tapping and dragging), collider
+
+**Sort line**:
+The top edge of a fixture's footprint, and that fixture's depth. A chicken whose feet are above it draws behind the fixture, partly hidden but with its head still showing over the top; one beside or in front of it draws in front.
+
 **Tool**:
 A toolbar entry that never becomes a world object: dragging it out and dropping it acts on whatever it lands on, and dropping it anywhere it has nothing to act on cancels. The bucket so far.
 
 ## Water
 
 **Water bowl**:
-A fixture holding water for chickens to drink. Renders in the floor layer, so a chicken drinking from it — beak in the water — always draws on top of it; casts a shadow. Any number of chickens can drink from it at once, draining it faster together. Running dry doesn't remove it — it sits empty until refilled with the bucket. Moving it while chickens drink sends them after it. Its tooltip shows how much water is left.
+A fixture holding water for chickens to drink. Sorts by its sort line. A drinking chicken stands at its left or right side, feet just clear of the rim, and reaches over it so her beak dips somewhere in the water; she stands low enough to draw in front of it; casts a shadow. Any number of chickens can drink from it at once, draining it faster together. Running dry doesn't remove it — it sits empty until refilled with the bucket. Moving it while chickens drink sends them after it. Its tooltip shows how much water is left.
 _Avoid_: Waterer, trough, water source
 
 **Water** (bowl):
@@ -159,7 +166,7 @@ The hydration a chicken with water available averages over its drinks. Offline c
 ## Egg laying
 
 **Hen bed**:
-A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Renders in the floor layer, always behind every object in the main sort. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
+A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Sorts by its sort line, so a chicken walking past behind it is partly hidden. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
 _Avoid_: Bed (hen bed is the canonical term, to stay unambiguous alongside other future toolbar items). "Nest" is reserved for the chicken state (see Nest) — a hen bed itself is never called a nest.
 
 **Egg slot**:
@@ -174,7 +181,7 @@ An egg that landed outside any hen bed's slots. Lands near the nearest bed if an
 _Avoid_: Loose egg, ground egg
 
 **Nest**:
-The state a chicken is in while walking to where it will lay, entered the moment lay progress completes: a hen bed with an open slot if one exists anywhere in the garden, or a floor spot near the nearest bed if every bed is full. Preempts whatever the hen was doing, except a claimed treat, which she finishes first (the lay waits, it isn't lost). Re-checks its target on arrival — if the chosen bed filled up in the meantime, it looks again for another bed with an open slot before falling back to the floor. If no bed exists anywhere in the garden, the hen lays immediately instead of entering nest at all.
+The state a chicken is in while walking to where it will lay, entered the moment lay progress completes: a hen bed with an open slot if one exists anywhere in the garden, or a floor spot near the nearest bed if every bed is full. Preempts whatever the hen was doing, except a claimed treat, which she finishes first (the lay waits, it isn't lost). To use a hen bed she walks around it to one side, hops up onto it, and stands over the slot she'll lay into, settling there for a short sit; the egg appears as she hops off, down whichever side is nearer to where she's going next. She prefers a bed no other hen is standing on; if every bed with an open slot is occupied, she shares one anyway. A bed moved while she's on it or heading to it sends her after it, the lay still waiting. Re-checks its target on arrival — if the chosen bed filled up in the meantime, it looks again for another bed with an open slot before falling back to the floor. If no bed exists anywhere in the garden, the hen lays immediately instead of entering nest at all.
 _Avoid_: Lay approach, settle (nest is the canonical term for this state)
 
 **Garden**:
@@ -201,7 +208,7 @@ Something the player places in the play area for chickens to repeatedly eat from
 _Avoid_: Feeder (implies a container), station, plate, food item (retired: one-use items left Feed and became treats)
 
 **Seed patch**:
-One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed — the seed it pecks is the next to disappear — hopping to another still-showing seed (within the same bout) when its own disappears — unless one sits within a few pixels, which it pecks without moving. It doesn't eat while hopping: satiety and the patch both hold until it pecks again.
+One food source drawn as a scatter of individual seed sprites around the point it was placed. The scatter is both art and a depletion gauge: sprites disappear one at a time as the patch's capacity is drawn down, so by the time it's empty every sprite is already gone. Still a single capacity and a single tooltip, but a chicken pecks at one individual seed — the seed it pecks is the next to disappear — hopping to another still-showing seed (within the same bout) when its own disappears — unless one sits within a few pixels, which it pecks without moving. It doesn't eat while hopping: satiety and the patch both hold until it pecks again. A seed that would sit inside a fixture's footprint is scattered somewhere else in the patch instead.
 _Avoid_: Seeds, seed pile (the patch is one thing, not ten)
 
 **Capacity**:

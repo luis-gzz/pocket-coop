@@ -1,0 +1,7 @@
+# Fixtures sort by their footprint's sort line, and chickens path around footprints
+
+ADR-0014 kept hen beds (and later water bowls) in a floor layer always drawn behind the chicken, which was fine while they were treated as flat. The crate bed and the bowl both stand up, though, and a chicken walking "behind" one while drawn on top of it looks wrong. Walks also ran straight through them.
+
+Each fixture now has a **footprint**: its full width, from its bottom edge up to a line a per-type share (0.25 by default) below its top. Fixtures move into the main sort, and their depth is the footprint's top edge (the **sort line**), not their bottom edge as ADR-0006 would give. A chicken passing behind is partly hidden but its head stays visible over the top. Using the bottom edge would hide it completely; the floor layer can never hide it at all. Chickens path around footprints using corner detours over the inflated footprint corners, and wander routes re-roll or splice a detour. We picked this over grid A* (overkill for a handful of rectangles) and local steering (it gets stuck on clusters of overlapping fixtures). Only the act of using a fixture enters its footprint: a drinking chicken overlaps a bowl's rim, and a nesting hen hops onto a bed.
+
+This supersedes ADR-0014's floor layer for fixtures. Its spacing rule still stands, and the floor layer remains for flat objects (seed patches, ash).
