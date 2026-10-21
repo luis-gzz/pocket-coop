@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Tooltip = require("src.ui.tooltip")
+local Footprints = require("src.systems.footprints")
 
 -- The view side of a seed patch (CONTEXT.md's Food source). Feed owns the
 -- item record (kind/type/x/y/capacity/remaining/offsets) and placement
@@ -20,17 +21,29 @@ local NEARBY_RADIUS_NATIVE = 3
 SeedPatch.WIDTH = ICON_NATIVE_SIZE * Constants.PIXEL_SCALE
 SeedPatch.HEIGHT = SeedPatch.WIDTH
 SeedPatch.CAPACITY = 100 -- food units (src/systems/tuning.lua): ~1 fed-chicken-hour
+-- One seed's box: all a patch keeps out of fixture footprints (CONTEXT.md).
+SeedPatch.SEED_SIZE = SPRITE_NATIVE_SIZE * Constants.PIXEL_SCALE
+local SCATTER_ATTEMPTS = 8
 SeedPatch.DESCRIPTOR = { icon = ICON_PATH, width = SeedPatch.WIDTH, height = SeedPatch.HEIGHT, type = "seed_patch" }
 
--- Scatters the ten seed sprites near the patch's center; generated once and
--- saved so a reload keeps the same arrangement.
-function SeedPatch.scatterOffsets()
+-- Scatters the ten seed sprites near the patch's center at (x, y), re-rolling
+-- any that would sit in a fixture's footprint; generated once and saved so a
+-- reload keeps the same arrangement.
+function SeedPatch.scatterOffsets(x, y)
 	local radius = SCATTER_RADIUS_NATIVE * Constants.PIXEL_SCALE
+	local half = SeedPatch.SEED_SIZE / 2
 	local offsets = {}
 	for _ = 1, COUNT do
-		local angle = math.random() * math.pi * 2
-		local distance = math.random() * radius
-		table.insert(offsets, { dx = math.cos(angle) * distance, dy = math.sin(angle) * distance })
+		local dx, dy
+		for _ = 1, SCATTER_ATTEMPTS do
+			local angle = math.random() * math.pi * 2
+			local distance = math.random() * radius
+			dx, dy = math.cos(angle) * distance, math.sin(angle) * distance
+			if not Footprints.findAt(x + dx, y + dy + half, half, half) then
+				break
+			end
+		end
+		table.insert(offsets, { dx = dx, dy = dy })
 	end
 	return offsets
 end

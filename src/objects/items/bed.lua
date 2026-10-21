@@ -2,6 +2,7 @@ local Constants = require("src.util.constants")
 local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
+local Footprints = require("src.systems.footprints")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -16,6 +17,9 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed" }
+
+-- Share of its height above the footprint (CONTEXT.md's Footprint).
+Bed.FOOTPRINT_SHARE = 0.25
 
 -- A bed holds up to this many eggs at once (CONTEXT.md's Egg slot).
 Bed.SLOT_COUNT = 3
@@ -50,18 +54,16 @@ local WIGGLE_STEP_TIME = 90
 --
 -- A bed is a group so an occupying egg can be inserted on top of the nest
 -- art and stay visually "inside" it (see egg.lua), instead of competing with
--- the nest for Y-sort depth. The group is registered with the floor layer
--- (ADR-0014), not the main YSort group: it sorts against other beds by the
--- same bottom-edge rule (ADR-0006), but the floor layer as a whole always
--- renders behind every object in the main sort, so a chicken or egg standing
--- anywhere on a bed still reads as in front of it.
+-- the nest for Y-sort depth. The group sorts in the main sort by its sort
+-- line (ADR-0021), so a chicken passing behind is partly hidden.
 function Bed.new(record, onMoved, resolvePlacement)
 	local group = display.newGroup()
-	YSort.getFloorGroup():insert(group)
+	YSort.getGroup():insert(group)
 	group.x = record.x
 	group.y = record.y
-	YSort.addToFloor(group, function(view)
-		return view.y + Bed.HEIGHT / 2
+	YSort.add(group, function(view)
+		return Footprints.sortLine({ x = view.x, y = view.y, width = Bed.WIDTH, height = Bed.HEIGHT,
+			footprintShare = Bed.FOOTPRINT_SHARE })
 	end)
 
 	Shadow.new(group, NATIVE_WIDTH).y = Bed.HEIGHT / 2
@@ -78,6 +80,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 
 	local function beginDrag(startX, startY)
 		isDragging = true
+		record.dragging = true
 		originalX, originalY = record.x, record.y
 		dragOffsetX = group.x - startX
 		dragOffsetY = group.y - startY
@@ -126,9 +129,17 @@ function Bed.new(record, onMoved, resolvePlacement)
 					if finalX then
 						group.x, group.y = finalX, finalY
 						record.x, record.y = finalX, finalY
+						record.dragging = false
 						onMoved()
 					else
-						transition.to(group, { x = originalX, y = originalY, time = 150 })
+						transition.to(group, {
+							x = originalX,
+							y = originalY,
+							time = 150,
+							onComplete = function()
+								record.dragging = false
+							end,
+						})
 					end
 				end
 			end

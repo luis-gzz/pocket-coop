@@ -3,6 +3,7 @@ local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Tooltip = require("src.ui.tooltip")
+local Footprints = require("src.systems.footprints")
 
 -- The view + drag side of a water bowl (CONTEXT.md). Bowls owns the record
 -- and placement rules; this owns the display object and repositioning.
@@ -19,10 +20,14 @@ WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 WaterBowl.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl" }
 
--- How far in from the bowl's side a peck point lands, in native px, and
--- the top share of the bowl it lands in, so the beak reaches the water.
-local PECK_INSET = 4
-local PECK_UPPER_SHARE = 0.6
+-- Share of its height above the footprint (CONTEXT.md's Footprint).
+WaterBowl.FOOTPRINT_SHARE = 0.25
+
+-- How far in from the bowl's side a peck point lands, and the rows the
+-- water spans (native px from the top), so the beak reaches the water.
+-- The inset keeps a drinking chicken's front foot just off the rim.
+local PECK_INSET = 2.5
+local WATER_TOP, WATER_BOTTOM = 4, 7
 
 -- ms; matches chicken.lua's own long-press threshold.
 local LONG_PRESS_TIME = 350
@@ -31,14 +36,15 @@ local WIGGLE_STEP_TIME = 90
 
 -- record: the bowl Bowls owns; a drag mutates record.x/y, then onMoved()
 -- saves. resolvePlacement(x, y) returns the final x, y or nil to snap back.
--- In the floor layer like a hen bed, so a drinking chicken is always on top.
+-- Sorts by its sort line (ADR-0021), like a hen bed.
 function WaterBowl.new(record, onMoved, resolvePlacement)
 	local group = display.newGroup()
-	YSort.getFloorGroup():insert(group)
+	YSort.getGroup():insert(group)
 	group.x = record.x
 	group.y = record.y
-	YSort.addToFloor(group, function(view)
-		return view.y + WaterBowl.HEIGHT / 2
+	YSort.add(group, function(view)
+		return Footprints.sortLine({ x = view.x, y = view.y, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT,
+			footprintShare = WaterBowl.FOOTPRINT_SHARE })
 	end)
 
 	Shadow.new(group, NATIVE_WIDTH).y = WaterBowl.HEIGHT / 2
@@ -54,13 +60,15 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 	end
 	record.updateVisual()
 
-	-- Near the side facing the chicken, somewhere in the bowl's upper share.
+	-- Near the side facing the chicken, anywhere in the water's rows; the
+	-- chicken stands lower, so she's below the sort line and draws in front.
 	function record.pickPeckPoint(facing)
 		local inset = PECK_INSET * Constants.PIXEL_SCALE
 		local top = record.y - WaterBowl.HEIGHT / 2
+		local row = WATER_TOP + math.random() * (WATER_BOTTOM - WATER_TOP)
 		return {
 			x = record.x - facing * (WaterBowl.WIDTH / 2 - inset),
-			y = top + math.random() * WaterBowl.HEIGHT * PECK_UPPER_SHARE,
+			y = top + row * Constants.PIXEL_SCALE,
 		}
 	end
 

@@ -2,6 +2,7 @@ local Clock = require("src.systems.clock")
 local Constants = require("src.util.constants")
 local Font = require("src.ui.font")
 local Garden = require("src.systems.garden")
+local Chicken = require("src.objects.chicken.chicken")
 local WelcomeCard = require("src.ui.welcome_card")
 
 -- Corner debug popover: time-scale presets, plus skip buttons that run real
@@ -117,7 +118,7 @@ function DebugOverlay.create()
 			end)
 		end
 
-		-- Third and fourth rows, full width: empty every chicken's fullness/hydration.
+		-- Full-width rows: empty every chicken's fullness/hydration, toggle route lines.
 		local rowWidth = #SKIP_HOURS * BUTTON_WIDTH + (#SKIP_HOURS - 1) * BUTTON_GAP
 		addButton(0, 2 * (BUTTON_HEIGHT + BUTTON_GAP), "Fullness 0", function()
 			hidePopover()
@@ -126,6 +127,10 @@ function DebugOverlay.create()
 		addButton(0, 3 * (BUTTON_HEIGHT + BUTTON_GAP), "Hydration 0", function()
 			hidePopover()
 			Garden.debugEmptyHydration()
+		end, rowWidth)
+		addButton(0, 4 * (BUTTON_HEIGHT + BUTTON_GAP), Chicken.showRoutes and "Paths on" or "Paths off", function()
+			hidePopover()
+			Chicken.setShowRoutes(not Chicken.showRoutes)
 		end, rowWidth)
 
 		current = { dismiss = dismiss, group = group }

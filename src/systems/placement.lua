@@ -1,5 +1,7 @@
 local Constants = require("src.util.constants")
 local Layout = require("src.ui.layout")
+local Fixtures = require("src.systems.fixtures")
+local Footprints = require("src.systems.footprints")
 
 -- Shared spacing for food sources and treats (CONTEXT.md): a drop too close
 -- to any registered item is nudged. Feed and Treats each register their list.
@@ -20,6 +22,7 @@ local itemSources = {}
 -- since load() replaces the list wholesale).
 function Placement.register(getItems)
 	table.insert(itemSources, getItems)
+	Fixtures.registerItems(getItems)
 end
 
 local function clamp(value, low, high)
@@ -56,8 +59,10 @@ end
 
 -- Rejects a drop outside the play area (nil, nil); otherwise always
 -- succeeds, nudging a little (clamped back into the play area) if it lands
--- too close to another item's center.
-function Placement.compute(width, height, x, y, exclude)
+-- too close to another item's center, then just outside any fixture's
+-- footprint. solidWidth/solidHeight, if given, is the box kept out of
+-- footprints instead of the whole item.
+function Placement.compute(width, height, x, y, exclude, solidWidth, solidHeight)
 	if not isWithinPlayArea(x, y, width, height) then
 		return nil, nil
 	end
@@ -68,7 +73,8 @@ function Placement.compute(width, height, x, y, exclude)
 		x, y = clampToPlayArea(x + math.cos(angle) * distance, y + math.sin(angle) * distance, width, height)
 	end
 
-	return x, y
+	x, y = Footprints.pushBoxOut(x, y, solidWidth or width, solidHeight or height)
+	return clampToPlayArea(x, y, width, height)
 end
 
 return Placement

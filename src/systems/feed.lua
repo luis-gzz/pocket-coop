@@ -139,11 +139,14 @@ local function createSeedPatch(x, y, remaining, offsets, placedAt)
 end
 
 function Feed.placeSeedPatch(x, y)
-	local finalX, finalY = Placement.compute(SeedPatch.WIDTH, SeedPatch.HEIGHT, x, y)
+	local finalX, finalY = Placement.compute(
+		SeedPatch.WIDTH, SeedPatch.HEIGHT, x, y, nil, SeedPatch.SEED_SIZE, SeedPatch.SEED_SIZE
+	)
 	if not finalX then
 		return
 	end
-	local item = createSeedPatch(finalX, finalY, SeedPatch.CAPACITY, SeedPatch.scatterOffsets(), os.time())
+	local offsets = SeedPatch.scatterOffsets(finalX, finalY)
+	local item = createSeedPatch(finalX, finalY, SeedPatch.CAPACITY, offsets, os.time())
 	table.insert(items, item)
 	save()
 	return item
