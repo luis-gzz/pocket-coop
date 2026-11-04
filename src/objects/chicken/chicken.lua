@@ -9,6 +9,7 @@ local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
 local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
 local Shadow = require("src.objects.shadow")
@@ -932,6 +933,7 @@ function Chicken:setupTouch()
 		local view = self.view
 		self.dragOffsetX = view.x - x
 		self.dragOffsetY = view.y - y
+		Selection.clear()
 		self.machine:changeState("held")
 	end
 
@@ -991,11 +993,13 @@ function Chicken:setupTouch()
 					timer.cancel(self.longPressHandle)
 					self.longPressHandle = nil
 					self.pendingTouch = nil
-					if event.phase == "ended" then
+					-- With an item selected, the tap uses it instead (ADR-0022).
+					if event.phase == "ended" and not Selection.get() then
 						Tooltip.show({
 							x = self.view.x,
 							y = self.view.y,
 							corner = true,
+							keepWhileSelecting = true,
 							title = NAME,
 							source = self,
 							onShow = function()

@@ -2,6 +2,7 @@ local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 local Layout = require("src.ui.layout")
 local Font = require("src.ui.font")
+local Selection = require("src.ui.selection")
 
 -- A small popover with a live-refreshed bar per row. Either anchored beside a
 -- world point, or (content.corner) in a play area corner clear of it.
@@ -163,8 +164,9 @@ function Tooltip.hide()
 	current = nil
 end
 
--- content: { x, y, rows, title?, corner?, source?, onShow?, onHide? }, where
--- source (the chicken/item it describes) makes tapping it again close it. Each row is
+-- content: { x, y, rows, title?, corner?, source?, onShow?, onHide?, keepWhileSelecting? }, where
+-- source (the chicken/item it describes) makes tapping it again close it, and
+-- keepWhileSelecting (chickens, fixtures) keeps it open through selecting and using an item. Each row is
 -- { label | icon, getValue } or { icon, text } - see chicken.lua/lettuce.lua/
 -- mealworm.lua for shape.
 function Tooltip.show(content)
@@ -199,6 +201,10 @@ function Tooltip.show(content)
 			dismiss:addEventListener("tap", function()
 				if ignoringTap then
 					return true
+				end
+				-- Stays open while the selected item is used; the tap carries on to it.
+				if Selection.get() and current and current.content.keepWhileSelecting then
+					return false
 				end
 				-- Let the tap carry on to whatever's beneath, so it acts in the same tap.
 				dismissedSource = current and current.content.source
@@ -284,5 +290,12 @@ function Tooltip.show(content)
 
 	current = { dismiss = dismiss, group = group, refresh = refresh, content = content }
 end
+
+-- Selecting an item closes every tooltip but a chicken's or fixture's.
+Selection.onChanged(function(itemType)
+	if itemType and current and not current.content.keepWhileSelecting then
+		Tooltip.hide()
+	end
+end)
 
 return Tooltip

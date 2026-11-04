@@ -15,12 +15,11 @@ Ash.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Ash.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 Ash.GAUGE = "cleanliness"
 Ash.AMOUNT = 75
--- The toolbar shows the icon, but the dragged ghost is the patch at true size.
+-- The toolbar shows the 16x16 icon rather than the wide patch.
 Ash.DESCRIPTOR = {
 	icon = ICON_PATH,
 	iconWidth = 16,
 	iconHeight = 16,
-	ghost = IMAGE_PATH,
 	width = Ash.WIDTH,
 	height = Ash.HEIGHT,
 	type = "ash",

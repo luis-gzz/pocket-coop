@@ -7,6 +7,7 @@ local Save = require("src.systems.save")
 local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
+local Inventory = require("src.systems.inventory")
 local Fixtures = require("src.systems.fixtures")
 local Footprints = require("src.systems.footprints")
 local Offline = require("src.systems.offline")
@@ -148,6 +149,7 @@ function Garden.save()
 		feed = Feed.getSaveData(),
 		treats = Treats.getSaveData(),
 		bowls = Bowls.getSaveData(),
+		inventory = Inventory.getSaveData(),
 	})
 end
 
@@ -510,7 +512,7 @@ function Garden.getSaveData()
 end
 
 -- saved: the full save file from src/systems/save.lua ({ garden = ..., feed
--- = ..., treats = ..., bowls = ... }). Loads Feed, Treats, and Bowls first (so their items are
+-- = ..., treats = ..., bowls = ..., inventory = ... }). Loads Feed, Treats, and Bowls first (so their items are
 -- visible on the first decide), then this module's own beds/eggs/droppings/chickens. Spawns
 -- exactly one chicken today regardless of how many are saved - the
 -- chickens array/save shape is ready for more, but nothing yet creates a
@@ -532,6 +534,8 @@ function Garden.load(saved)
 	Treats.setSaveCallback(Garden.save)
 	Bowls.load(saved.bowls)
 	Bowls.setSaveCallback(Garden.save)
+	Inventory.load(saved.inventory)
+	Inventory.setSaveCallback(Garden.save)
 
 	collectedCount = savedGarden.collectedCount or 0
 	lastUpdate = savedGarden.lastUpdate

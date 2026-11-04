@@ -3,6 +3,7 @@ local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
 local Footprints = require("src.systems.footprints")
 
 -- The view + drag side of a water bowl (CONTEXT.md). Bowls owns the record
@@ -18,7 +19,7 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 21, 13
 
 WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 WaterBowl.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl" }
+WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl", fixture = true }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 WaterBowl.FOOTPRINT_SHARE = 0.25
@@ -84,6 +85,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		record.dragging = true
 		originalX, originalY = record.x, record.y
@@ -97,6 +99,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 	local function showTooltip()
 		Tooltip.show({
 			source = record,
+			keepWhileSelecting = true,
 			x = record.x,
 			y = record.y,
 			rows = {
@@ -132,7 +135,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 				if longPressHandle then
 					timer.cancel(longPressHandle)
 					longPressHandle = nil
-					if pendingTouch and event.phase == "ended" then
+					if pendingTouch and event.phase == "ended" and not Selection.get() then
 						showTooltip()
 					end
 				end

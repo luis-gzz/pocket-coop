@@ -3,6 +3,7 @@ local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Footprints = require("src.systems.footprints")
+local Selection = require("src.ui.selection")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -16,7 +17,7 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed" }
+Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed", fixture = true }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 Bed.FOOTPRINT_SHARE = 0.25
@@ -79,6 +80,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		record.dragging = true
 		originalX, originalY = record.x, record.y

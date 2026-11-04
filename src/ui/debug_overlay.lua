@@ -4,6 +4,7 @@ local Font = require("src.ui.font")
 local Garden = require("src.systems.garden")
 local Chicken = require("src.objects.chicken.chicken")
 local WelcomeCard = require("src.ui.welcome_card")
+local Selection = require("src.ui.selection")
 
 -- Corner debug popover: time-scale presets, plus skip buttons that run real
 -- catch-up for a fake absence. Owns no game logic.
@@ -58,6 +59,7 @@ function DebugOverlay.create()
 
 	local function showPopover()
 		hidePopover()
+		Selection.clear()
 
 		-- Same full-screen-dismiss-rect-with-a-frame-deferred-listener pattern
 		-- as src/ui/tooltip.lua, so the tap that opens this popover doesn't also

@@ -17,6 +17,7 @@ local YSort = require("src.systems.y_sort")
 local Garden = require("src.systems.garden")
 local Hud = require("src.ui.hud")
 local Toolbar = require("src.ui.toolbar")
+local Selection = require("src.ui.selection")
 local Save = require("src.systems.save")
 local DebugOverlay = require("src.ui.debug_overlay")
 local WelcomeCard = require("src.ui.welcome_card")
@@ -39,6 +40,14 @@ YSort.createGroup()
 -- and on suspend/exit.
 local saved = Save.load()
 Garden.load(saved)
+
+-- Above the world, below the UI: a tap uses the selected item, and a
+-- selection lasts one successful use; a miss keeps it (ADR-0022).
+Selection.createCatcher(function(itemType, x, y)
+	if Garden.tryPlace(itemType, x, y) then
+		Selection.clear()
+	end
+end)
 
 Hud.create()
 Toolbar.create()
@@ -63,6 +72,7 @@ timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 -- the garden to now.
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
+		Selection.clear()
 		Garden.save()
 	elseif event.type == "applicationResume" then
 		returnToNow()

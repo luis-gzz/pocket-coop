@@ -1,6 +1,7 @@
 local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 local Font = require("src.ui.font")
+local Selection = require("src.ui.selection")
 
 -- Welcome-back card shown after a full offline catch-up. Dismissed by OK or
 -- any outside tap, which never reaches the world; the game keeps running.
@@ -46,6 +47,7 @@ end
 
 function WelcomeCard.show(elapsedSeconds)
 	WelcomeCard.hide()
+	Selection.clear()
 
 	local centerX = display.screenOriginX + display.actualContentWidth / 2
 	local centerY = display.screenOriginY + display.actualContentHeight / 2

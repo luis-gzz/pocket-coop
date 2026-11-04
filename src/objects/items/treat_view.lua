@@ -1,6 +1,7 @@
 local YSort = require("src.systems.y_sort")
 local Wiggle = require("src.util.wiggle")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
 local Shadow = require("src.objects.shadow")
 
 -- The view + drag side shared by every treat (CONTEXT.md's Treat): a
@@ -53,6 +54,7 @@ function TreatView.new(item, opts, resolveDrop)
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		item.dragging = true
 		if item.claimedBy then
@@ -107,7 +109,7 @@ function TreatView.new(item, opts, resolveDrop)
 				if longPressHandle then
 					timer.cancel(longPressHandle)
 					longPressHandle = nil
-					if pendingTouch and event.phase == "ended" then
+					if pendingTouch and event.phase == "ended" and not Selection.get() then
 						showTooltip()
 					end
 				end
