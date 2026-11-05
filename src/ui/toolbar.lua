@@ -3,14 +3,13 @@ local Layout = require("src.ui.layout")
 local Catalog = require("src.ui.catalog")
 local Inventory = require("src.systems.inventory")
 local Selection = require("src.ui.selection")
+local DropZone = require("src.ui.drop_zone")
 local Slot = require("src.ui.slot")
-local BarnPanel = require("src.ui.barn_panel")
-local Font = require("src.ui.font")
 local Color = require("src.util.color")
 
 -- The bottom UI band's row of item slots (CONTEXT.md's Toolbar): tap one to
--- select its item, then tap the world to use it (ADR-0022). The barn slot
--- is always last. Reads Inventory's toolbar list, so it holds no item logic.
+-- select its item, then tap the world to use it (ADR-0022). Always shows
+-- every toolbar slot, empty ones too, and reads Inventory for what's in them.
 local Toolbar = {}
 
 local SLOT_MARGIN = 4 * Constants.PIXEL_SCALE
@@ -20,32 +19,13 @@ local SLOT_GAP = 3 * Constants.PIXEL_SCALE
 -- moving further than this scrolls the row and never selects.
 local TAP_SLOP = 10
 
-local STROKE_HEX = "3a3858"
-local BUTTON_FILL_HEX = "8ab060"
--- Same width as a slot; the label shrinks to fit it.
-local STORE_WIDTH = Slot.SIZE
-local STORE_HEIGHT = 9 * Constants.PIXEL_SCALE
-local STORE_FONT_SIZE = 6 * Constants.PIXEL_SCALE
-local STORE_LABEL_PADDING = 1 * Constants.PIXEL_SCALE
-local STORE_GAP = 2 * Constants.PIXEL_SCALE
-local BUTTON_CORNER_RADIUS = 2 * Constants.PIXEL_SCALE
-local STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
+-- Shown over the band while a fixture dragged off the map hovers it.
+local HOVER_HEX = "4b80ca"
+local HOVER_ALPHA = 0.3
 
 local itemsByType = {}
 for _, item in ipairs(Catalog) do
 	itemsByType[item.type] = item
-end
-
--- Placeholder barn art (a red barn front) until a real icon exists.
-local function drawBarnIcon(group)
-	local unit = Constants.PIXEL_SCALE
-	local cx, cy = Slot.SIZE / 2, Slot.SIZE / 2
-	local roof = display.newPolygon(group, cx, cy - 3 * unit, { -6 * unit, 2 * unit, 0, -3 * unit, 6 * unit, 2 * unit })
-	roof:setFillColor(Color.hexToRGB(STROKE_HEX))
-	local body = display.newRect(group, cx, cy + 2.5 * unit, 10 * unit, 8 * unit)
-	body:setFillColor(Color.hexToRGB("b45252"))
-	local door = display.newRect(group, cx, cy + 4 * unit, 4 * unit, 5 * unit)
-	door:setFillColor(Color.hexToRGB("f2f0e5"))
 end
 
 function Toolbar.create()
@@ -58,66 +38,32 @@ function Toolbar.create()
 	local container = display.newContainer(bandWidth, band.maxY - band.minY)
 	container.x = (band.minX + band.maxX) / 2
 	container.y = centerY
+
+	local hover = display.newRect(container, 0, 0, bandWidth, band.maxY - band.minY)
+	hover:setFillColor(Color.hexToRGB(HOVER_HEX))
+	hover.alpha = HOVER_ALPHA
+	hover.isVisible = false
+	DropZone.onHover(function(isHovering)
+		hover.isVisible = isHovering
+	end)
+
 	local strip = nil
-	local slots = {} -- { [itemType] = slot group }
+	local slots = {} -- [index] = slot group
 
 	local scrollOffset = 0
-	local maxScroll = 0
-
-	-- The Store button sits above the selected slot, outside the clipping
-	-- container, and follows it as the row scrolls.
-	local store = display.newGroup()
-	local storeButton = display.newRoundedRect(store, 0, 0, STORE_WIDTH, STORE_HEIGHT, BUTTON_CORNER_RADIUS)
-	storeButton:setFillColor(Color.hexToRGB(BUTTON_FILL_HEX))
-	storeButton.strokeWidth = STROKE_WIDTH
-	storeButton:setStrokeColor(Color.hexToRGB(STROKE_HEX))
-	local storeFontSize = STORE_FONT_SIZE
-	local storeLabel = display.newText(store, "Store", 0, 0, Constants.FONT, storeFontSize)
-	local maxLabelWidth = STORE_WIDTH - STORE_LABEL_PADDING * 2
-	if storeLabel.width > maxLabelWidth then
-		storeFontSize = storeFontSize * maxLabelWidth / storeLabel.width
-		storeLabel.size = storeFontSize
-	end
-	Font.centerCapsOn(storeLabel, 0, storeFontSize)
-	storeLabel:setFillColor(0.2, 0.2, 0.2)
-	store.y = band.minY - STORE_GAP - STORE_HEIGHT / 2
-	store.isVisible = false
-	-- Swallows touches too, so nothing in the world beneath starts a drag.
-	storeButton:addEventListener("touch", function()
-		return true
-	end)
-	storeButton:addEventListener("tap", function()
-		local itemType = Selection.get()
-		if itemType then
-			Selection.clear()
-			Inventory.store(itemType)
-		end
-		return true
-	end)
-
-	local function refreshStore()
-		local slot = slots[Selection.get() or ""]
-		if not slot then
-			store.isVisible = false
-			return
-		end
-		local x = slot:localToContent(Slot.SIZE / 2, 0)
-		store.x = x
-		store.isVisible = x >= band.minX and x <= band.maxX
-	end
+	local maxScroll = math.max(0, SLOT_MARGIN * 2 + Inventory.TOOLBAR_SLOTS * Slot.SIZE
+		+ (Inventory.TOOLBAR_SLOTS - 1) * SLOT_GAP - bandWidth)
 
 	local function scrollTo(offset)
 		scrollOffset = math.max(-maxScroll, math.min(0, offset))
 		strip.x = -container.x + scrollOffset
-		refreshStore()
 	end
 
 	local function refreshSelection()
 		local selected = Selection.get()
-		for itemType, slot in pairs(slots) do
-			slot.setSelected(itemType == selected)
+		for index, slot in ipairs(slots) do
+			slot.setSelected(selected ~= nil and Inventory.get("toolbar", index) == selected)
 		end
-		refreshStore()
 	end
 
 	-- A touch that stays within TAP_SLOP is a tap (onTap); one that moves
@@ -150,6 +96,10 @@ function Toolbar.create()
 		end)
 	end
 
+	local function slotX(index)
+		return band.minX + SLOT_MARGIN + (index - 1) * (Slot.SIZE + SLOT_GAP)
+	end
+
 	local function build()
 		if strip then
 			strip:removeSelf()
@@ -159,27 +109,34 @@ function Toolbar.create()
 		strip.y = -container.y
 		slots = {}
 
-		local types = Inventory.getToolbar()
-		local slotY = centerY - Slot.SIZE / 2
-		local x = band.minX + SLOT_MARGIN
-		for _, itemType in ipairs(types) do
-			local slot = Slot.new(strip, x, slotY, itemsByType[itemType])
-			slots[itemType] = slot
+		for index = 1, Inventory.TOOLBAR_SLOTS do
+			local itemType = Inventory.get("toolbar", index)
+			local slot = Slot.new(strip, slotX(index), centerY - Slot.SIZE / 2, itemsByType[itemType])
+			slots[index] = slot
+			-- An empty slot deselects, the same as tapping the selected one.
 			addTouch(slot.background, function()
-				Selection.set(Selection.get() ~= itemType and itemType or nil)
+				Selection.set(itemType ~= Selection.get() and itemType or nil)
 			end)
-			x = x + Slot.SIZE + SLOT_GAP
 		end
 
-		local barnSlot = Slot.new(strip, x, slotY)
-		drawBarnIcon(barnSlot)
-		addTouch(barnSlot.background, BarnPanel.toggle)
-
-		local slotCount = #types + 1
-		maxScroll = math.max(0, SLOT_MARGIN * 2 + slotCount * Slot.SIZE + (slotCount - 1) * SLOT_GAP - bandWidth)
 		scrollTo(scrollOffset)
 		refreshSelection()
 	end
+
+	-- Scrolls a landed slot into view, then flashes it.
+	DropZone.onLanded(function(area, index)
+		if area ~= "toolbar" then
+			return
+		end
+		local left = slotX(index) - band.minX - SLOT_MARGIN
+		local right = left + Slot.SIZE + SLOT_MARGIN * 2
+		if left + scrollOffset < 0 then
+			scrollTo(-left)
+		elseif right + scrollOffset > bandWidth then
+			scrollTo(bandWidth - right)
+		end
+		slots[index].flash()
+	end)
 
 	build()
 	Inventory.onChanged(build)

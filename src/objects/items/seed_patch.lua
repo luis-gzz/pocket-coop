@@ -24,7 +24,7 @@ SeedPatch.CAPACITY = 100 -- food units (src/systems/tuning.lua): ~1 fed-chicken-
 -- One seed's box: all a patch keeps out of fixture footprints (CONTEXT.md).
 SeedPatch.SEED_SIZE = SPRITE_NATIVE_SIZE * Constants.PIXEL_SCALE
 local SCATTER_ATTEMPTS = 8
-SeedPatch.DESCRIPTOR = { icon = ICON_PATH, width = SeedPatch.WIDTH, height = SeedPatch.HEIGHT, type = "seed_patch" }
+SeedPatch.DESCRIPTOR = { icon = ICON_PATH, width = SeedPatch.WIDTH, height = SeedPatch.HEIGHT, type = "seed_patch", name = "Seed patch" }
 
 -- Scatters the ten seed sprites near the patch's center at (x, y), re-rolling
 -- any that would sit in a fixture's footprint; generated once and saved so a

@@ -126,7 +126,7 @@ _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the v
 ## Fixtures
 
 **Fixture**:
-A world object placed from the toolbar that stays for good once placed: it is never used up and can't be removed, only repositioned by holding and dragging it. A placement or drop that would leave any part of it outside the play area places nothing or snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
+A world object placed from the toolbar that stays until taken back: it is never used up, and holding and dragging it repositions it — or, dropped anywhere on the toolbar (which it draws above while dragged, and which lights up under it), takes it off the map. A taken-back fixture stays in its slot if its type is already in the toolbar or barn, else takes the first open toolbar slot, else the first open barn slot; that slot (or the barn button) flashes, and the toolbar scrolls to it (see ADR-0023). A placement or drop that would leave any part of it outside the play area places nothing or snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
 _Avoid_: Building, structure
 
 **Footprint**:
@@ -166,7 +166,7 @@ The hydration a chicken with water available averages over its drinks. Offline c
 ## Egg laying
 
 **Hen bed**:
-A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Sorts by its sort line, so a chicken walking past behind it is partly hidden. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
+A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Sorts by its sort line, so a chicken walking past behind it is partly hidden. Repositionable by holding and dragging it, or taken back by dropping it on the toolbar, which collects any eggs in it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
 _Avoid_: Bed (hen bed is the canonical term, to stay unambiguous alongside other future toolbar items). "Nest" is reserved for the chicken state (see Nest) — a hen bed itself is never called a nest.
 
 **Egg slot**:
@@ -189,31 +189,32 @@ The single shared owner of every chicken, every placed hen bed, every active egg
 _Avoid_: Coop (retired — beds/eggs/droppings are no longer a separate owner from the chickens themselves)
 
 **Toolbar**:
-The bottom UI band's control for using items: a row of slots, one per item not in the barn, followed always by the barn slot. Tapping a slot selects its item; tapping it again deselects, and tapping another switches. Items are free and never run out. When the row is wider than the band it scrolls sideways — a touch that moves more than a short distance scrolls and never selects. Fixtures always come first, then everything else; within each group the order is saved, along with which items are in the barn instead. An item the save doesn't mention joins the end of its group. Hen bed, water bowl, seed patch, lettuce, mealworm, watermelon slice, ash, and the bucket are its items so far — adding another is meant to be one more definition, not new UI code.
+The bottom UI band's control for using items: a row of ten slots, always all shown, empty ones too. Tapping a slot selects its item; tapping it again (or an empty slot) deselects, and tapping another switches. Items are free and never run out. When the row is wider than the band it scrolls sideways — a touch that moves more than a short distance scrolls and never selects. Slots are positional: an item stays in the slot the player put it in, rearranged only in the barn view. A fixture dragged off the map can be dropped anywhere on the toolbar to take it back (see Fixture). Hen bed, water bowl, seed patch, lettuce, mealworm, watermelon slice, ash, and the bucket are its items so far — adding another is meant to be one more definition, not new UI code.
 
 **Selected** (item):
-The one toolbar item, if any, that a tap in the play area currently uses — placing food, a treat, or a fixture where tapped, or refilling the bowl tapped with the bucket — instead of doing what that tap would normally do on a chicken, egg, dropping, or placed item (see ADR-0022). Shown by a highlighted slot. A selection lasts one use: placing the item or refilling a bowl deselects it, so using it again means selecting it again from the toolbar, while a tap that does nothing (a blocked spot, nothing to refill) leaves it selected. The item itself is never used up — not to be confused with a treat's one use. Also deselected by starting a long-press drag, opening the barn or any dialog, or leaving the app. Never saved.
+The one toolbar item, if any, that a tap in the play area currently uses — placing food, a treat, or a fixture where tapped, or refilling the bowl tapped with the bucket — instead of doing what that tap would normally do on a chicken, egg, dropping, or placed item (see ADR-0022). Shown by a highlighted slot. A selection lasts one use: placing the item or refilling a bowl deselects it, so using it again means selecting it again from the toolbar, while a tap that does nothing (a blocked spot, nothing to refill) leaves it selected. The item itself is never used up — not to be confused with a treat's one use. Also deselected by starting a long-press drag, opening the barn view or any dialog, or leaving the app. Never saved.
 _Avoid_: Armed, active, equipped
 
 **Barn**:
-Where items the player has taken out of the toolbar wait, still free and unlimited. An item is always in exactly one of the two. Store moves the selected item from the toolbar to the barn; Take out moves one back to the end of its group in the toolbar (fixtures stay at the front). Every item can be stored, the bucket included, so the toolbar can end up holding only the barn slot.
+Thirty more slots, beyond the toolbar's ten, where items the player isn't using wait — still free and unlimited. Every item type sits in exactly one slot, toolbar or barn; there are never two of a type, and no counts. Arranged only in the barn view. An item the save doesn't mention takes the first open toolbar slot, else the first open barn slot.
 _Avoid_: Storage, inventory, stash (stash is the egg counter's)
 
-**Barn slot**:
-The toolbar's last slot, always present, which opens the barn panel: a grid of the barn's items in catalog order. Tapping an item there shows its Take out button. Opening it deselects any selected item; a tap outside it or on the barn slot closes it.
+**Barn view**:
+The full-screen view the barn button opens, hiding the garden while the game keeps running behind it: a grid of four columns by ten rows, the first column the toolbar's slots (on a tinted backing, headed "Toolbar") and the other three the barn's (headed "Barn"), split by a divider. Long-pressing an item lifts it; the slot it would land in is highlighted, a drop on another slot swaps the two, and a drop off the grid snaps back. A quick tap shows the item's name. Opening it deselects any selected item; the X in its top-right corner closes it.
+_Avoid_: Inventory screen, barn panel (retired)
 
-**Store**:
-The small button shown above the selected item's slot (scrolling with it); moves that item to the barn and deselects it.
+**Barn button**:
+The slot-styled button at the right of the top UI band, beside the egg counter, that opens the barn view. Flashes when a fixture taken back off the map lands in the barn.
 
 **Slot**:
-The fixed-size, uniform square background behind each item's icon, in the toolbar and the barn panel alike. A tap anywhere within a slot's bounds — not just on its icon — counts. An item's icon renders shrunk to fit inside its slot.
+The fixed-size, uniform square background behind each item's icon — in the toolbar and the barn view alike — which may be empty. A tap anywhere within a slot's bounds — not just on its icon — counts. An item's icon renders shrunk to fit inside its slot.
 _Avoid_: Tile (already the ground's unit term), button
 
 **Egg counter**:
 The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.
 
 **UI band**:
-One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height, not a fixed height of their own. The ground shows through behind both bands.
+One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter and barn button on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height, not a fixed height of their own. The ground shows through behind both bands.
 
 ## Feeding
 

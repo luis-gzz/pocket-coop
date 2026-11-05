@@ -8,6 +8,7 @@ local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
 local Inventory = require("src.systems.inventory")
+local DropZone = require("src.ui.drop_zone")
 local Fixtures = require("src.systems.fixtures")
 local Footprints = require("src.systems.footprints")
 local Offline = require("src.systems.offline")
@@ -197,12 +198,22 @@ function Garden.removeDropping(view)
 	Garden.save()
 end
 
+-- A fixture dropped on the toolbar goes back into the inventory, and the
+-- slot it ends up in (or the barn button) flashes.
+local function returnToInventory(itemType)
+	DropZone.landed(Inventory.returnItem(itemType))
+end
+
+local returnBed -- defined after Garden.collectEgg
+
 local function createBedView(bed)
 	return Bed.new(bed, function()
 		Fixtures.notifyChanged()
 		Garden.save()
 	end, function(x, y)
 		return Garden.resolveBedPlacement(x, y, bed)
+	end, function()
+		returnBed(bed)
 	end)
 end
 
@@ -307,6 +318,28 @@ function Garden.collectEgg(egg)
 
 	collectedCount = collectedCount + 1
 	Garden.save()
+end
+
+-- Takes a bed off the map: its eggs are collected, and a hen waiting on it
+-- (nest pauses while it's dragged) re-picks once dragging clears.
+returnBed = function(bed)
+	for slot = 1, Bed.SLOT_COUNT do
+		if bed.eggs[slot] then
+			Garden.collectEgg(bed.eggs[slot])
+		end
+	end
+	for index, existing in ipairs(beds) do
+		if existing == bed then
+			table.remove(beds, index)
+			break
+		end
+	end
+	YSort.remove(bed.view)
+	bed.view:removeSelf()
+	bed.dragging = false
+	Fixtures.notifyChanged()
+	Garden.save()
+	returnToInventory("bed")
 end
 
 -- The toolbar's single placement entry point, dispatched by item type -
@@ -534,6 +567,9 @@ function Garden.load(saved)
 	Treats.setSaveCallback(Garden.save)
 	Bowls.load(saved.bowls)
 	Bowls.setSaveCallback(Garden.save)
+	Bowls.setReturnCallback(function()
+		returnToInventory("water_bowl")
+	end)
 	Inventory.load(saved.inventory)
 	Inventory.setSaveCallback(Garden.save)
 

@@ -61,6 +61,20 @@ function Layout.getTopBandRect()
 	return computeBands().topBandRect
 end
 
+-- The barn button's square at the top band's right edge (CONTEXT.md's Barn
+-- button): slot-sized, shrunk to fit a band shorter than a slot. The barn
+-- view's close button takes the same square.
+local HUD_BUTTON_MARGIN = 6 * Constants.PIXEL_SCALE
+local HUD_BUTTON_INSET = 2 * Constants.PIXEL_SCALE -- kept clear above and below
+
+function Layout.getHudButtonRect(slotSize)
+	local band = computeBands().topBandRect
+	local size = math.min(slotSize, band.maxY - band.minY - HUD_BUTTON_INSET * 2)
+	local maxX = band.maxX - HUD_BUTTON_MARGIN
+	local minY = (band.minY + band.maxY) / 2 - size / 2
+	return { minX = maxX - size, maxX = maxX, minY = minY, maxY = minY + size, size = size }
+end
+
 function Layout.getBottomBandRect()
 	return computeBands().bottomBandRect
 end

@@ -22,7 +22,7 @@ Ash.DESCRIPTOR = {
 	iconHeight = 16,
 	width = Ash.WIDTH,
 	height = Ash.HEIGHT,
-	type = "ash",
+	type = "ash", name = "Ash bath",
 }
 
 local TOOLTIP = {

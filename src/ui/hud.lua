@@ -2,24 +2,41 @@ local Constants = require("src.util.constants")
 local Layout = require("src.ui.layout")
 local Font = require("src.ui.font")
 local Garden = require("src.systems.garden")
+local Slot = require("src.ui.slot")
+local BarnView = require("src.ui.barn_view")
+local DropZone = require("src.ui.drop_zone")
 
--- The top UI band's at-a-glance stat displays - today just the egg counter
--- (the player's total collected eggs, their stash, not the number of eggs
--- currently sitting uncollected in the world - see CONTEXT.md). Named for
--- the band's general role so a future stat display isn't a rename.
+-- The top UI band's at-a-glance stat displays - the egg counter (the
+-- player's total collected eggs, their stash, not the number of eggs
+-- currently sitting uncollected in the world - see CONTEXT.md) - and the
+-- barn button at its right, which opens the barn view.
 local Hud = {}
 
 local ICON_NATIVE_WIDTH, ICON_NATIVE_HEIGHT = 6, 7
 local ICON_WIDTH = ICON_NATIVE_WIDTH * Constants.PIXEL_SCALE
 local ICON_HEIGHT = ICON_NATIVE_HEIGHT * Constants.PIXEL_SCALE
 local ICON_TEXT_GAP = 5 * Constants.PIXEL_SCALE
-local EDGE_MARGIN = 6 * Constants.PIXEL_SCALE
+local BUTTON_GAP = 6 * Constants.PIXEL_SCALE
 
 local ICON_PATH = "assets/fauna/ChickenEgg.png"
 
 function Hud.create()
 	local band = Layout.getTopBandRect()
 	local centerY = (band.minY + band.maxY) / 2
+
+	local buttonRect = Layout.getHudButtonRect(Slot.SIZE)
+	local barnButton = Slot.new(display.getCurrentStage(), buttonRect.minX, buttonRect.minY, nil, buttonRect.size,
+		Slot.BUTTON_CORNER_RADIUS)
+	Slot.drawBarnIcon(barnButton, buttonRect.size)
+	barnButton.background:addEventListener("tap", function()
+		BarnView.show()
+		return true
+	end)
+	DropZone.onLanded(function(area)
+		if area == "barn" then
+			barnButton.flash()
+		end
+	end)
 
 	local icon = display.newImageRect(ICON_PATH, ICON_WIDTH, ICON_HEIGHT)
 	icon.anchorX = 1
@@ -39,7 +56,7 @@ function Hud.create()
 	}
 	local text = display.newText(textOptions)
 	text.anchorX = 1
-	text.x = band.maxX - EDGE_MARGIN
+	text.x = barnButton.x - BUTTON_GAP
 	Font.centerCapsOn(text, centerY, Constants.FONT_SIZE_LARGE)
 	text:setFillColor(0.2, 0.2, 0.2)
 

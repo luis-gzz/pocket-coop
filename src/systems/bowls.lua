@@ -1,6 +1,7 @@
 local Tuning = require("src.systems.tuning")
 local Fixtures = require("src.systems.fixtures")
 local WaterBowl = require("src.objects.items.water_bowl")
+local YSort = require("src.systems.y_sort")
 
 -- The shared owner of every water bowl (CONTEXT.md's Water bowl), Feed's
 -- counterpart for water. Owned by Garden alongside Feed and Treats.
@@ -15,6 +16,7 @@ Fixtures.register(function()
 	return bowls
 end)
 local onSave = nil
+local onReturn = nil
 
 local function save()
 	if onSave then
@@ -24,6 +26,29 @@ end
 
 function Bowls.setSaveCallback(fn)
 	onSave = fn
+end
+
+-- fn(), called once a bowl dropped on the toolbar has left the map.
+function Bowls.setReturnCallback(fn)
+	onReturn = fn
+end
+
+-- Takes a bowl off the map. Chickens drinking from it already left when its drag began.
+local function removeBowl(bowl)
+	for index, existing in ipairs(bowls) do
+		if existing == bowl then
+			table.remove(bowls, index)
+			break
+		end
+	end
+	YSort.remove(bowl.view)
+	bowl.view:removeSelf()
+	bowl.dragging = false
+	Fixtures.notifyChanged()
+	save()
+	if onReturn then
+		onReturn()
+	end
 end
 
 local function hasWater(bowl)
@@ -42,11 +67,13 @@ local function createBowl(x, y, water)
 		water = water,
 		dragging = false,
 	}
-	WaterBowl.new(bowl, function()
+	bowl.view = WaterBowl.new(bowl, function()
 		Fixtures.notifyChanged()
 		save()
 	end, function(dropX, dropY)
 		return Fixtures.resolve(dropX, dropY, bowl.width, bowl.height, bowl.footprintShare, bowl)
+	end, function()
+		removeBowl(bowl)
 	end)
 	return bowl
 end
