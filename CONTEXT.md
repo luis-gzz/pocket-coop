@@ -16,7 +16,7 @@ _Avoid_: Island (retired — there is no longer a bordered play space), backdrop
 A fixed-size square unit of the ground, repeated with no gaps from the camera's top-left corner until the whole camera is covered; tiles at the right and bottom edges may be cut off.
 
 **Play area**:
-The region of the camera where the chicken can move and world objects can be placed: between the two UI bands vertically (stopping half a tile short of the bottom band), and inset from the safe area's left and right edges by a small margin. Not marked by anything on screen — the ground looks the same on either side of its edge.
+The region of the camera where the chicken can move and world objects can be placed: between the two UI bands vertically (stopping just short of the bottom band), and inset from the safe area's left and right edges by a small margin. Not marked by anything on screen — the ground looks the same on either side of its edge.
 _Avoid_: Island
 
 **Chicken**:
@@ -39,8 +39,8 @@ The state a chicken is in while the player is dragging it. Entered by touch inpu
 **Wiggle**:
 The feedback animation a chicken plays continuously for as long as it's held. Stops and settles flat the moment it's released.
 
-**Selected**:
-A purely visual highlight (a ring under the chicken) shown while that chicken's tooltip is open. It has no effect on behavior — a selected chicken keeps doing whatever it was doing, and stays selected while picked up and dragged.
+**Selected** (chicken):
+A purely visual highlight (a ring under the chicken) shown while that chicken's tooltip is open. It has no effect on behavior — a selected chicken keeps doing whatever it was doing, and stays selected while picked up and dragged. Unrelated to a selected item.
 _Avoid_: Frozen, focused
 
 **Satiety**:
@@ -98,7 +98,7 @@ A flat, temporary happiness boost lasting an hour. A chicken has at most one: gr
 _Avoid_: Pet buff (tapping a chicken no longer grants one)
 
 **Chicken tooltip**:
-The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — showing whether she's laying at the full rate, a reduced rate, or not at all. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
+The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — showing whether she's laying at the full rate, a reduced rate, or not at all. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. While an item is selected, taps use it instead: no tooltip opens, an item tooltip closes the moment the item is selected, but a chicken's or fixture's tooltip stays open through selecting and using it. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
 _Avoid_: Popover, inspector, stats panel
 
 **Clock**:
@@ -126,7 +126,7 @@ _Avoid_: Z-order, layer, Y-sort (Y-sort is the sorting mechanism; depth is the v
 ## Fixtures
 
 **Fixture**:
-A world object placed from the toolbar that stays for good once placed: it is never used up and can't be removed, only repositioned by holding and dragging it. A drop that would leave any part of it outside the play area snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
+A world object placed from the toolbar that stays until taken back: it is never used up, and holding and dragging it repositions it — or, dropped anywhere on the toolbar (which it draws above while dragged, and which lights up under it), takes it off the map. A taken-back fixture stays in its slot if its type is already in the toolbar or barn, else takes the first open toolbar slot, else the first open barn slot; that slot (or the barn button) flashes, and the toolbar scrolls to it (see ADR-0023). A placement or drop that would leave any part of it outside the play area places nothing or snaps back. Placement and drags keep fixtures from sitting directly on top of one another, the same way hen beds are kept apart. Hen bed and water bowl so far.
 _Avoid_: Building, structure
 
 **Footprint**:
@@ -137,7 +137,7 @@ _Avoid_: Hitbox (that's the touch target for tapping and dragging), collider
 The top edge of a fixture's footprint, and that fixture's depth. A chicken whose feet are above it draws behind the fixture, partly hidden but with its head still showing over the top; one beside or in front of it draws in front.
 
 **Tool**:
-A toolbar entry that never becomes a world object: dragging it out and dropping it acts on whatever it lands on, and dropping it anywhere it has nothing to act on cancels. The bucket so far.
+A toolbar entry that never becomes a world object: while it's selected, a tap acts on whatever it lands on, and a tap with nothing to act on does nothing. The bucket so far.
 
 ## Water
 
@@ -150,7 +150,7 @@ How much a water bowl holds, measured in the hydration it can give: a full bowl 
 _Avoid_: Capacity (that's a food source's), charges
 
 **Bucket**:
-The tool that refills water bowls: dropping it on a bowl fills that bowl to full. Dropping it on a full bowl or on nothing cancels. Free and unlimited.
+The tool that refills water bowls: while it's selected, tapping a bowl fills that bowl to full; tapping a full bowl or anything else does nothing. Free and unlimited.
 _Avoid_: Watering can
 
 **Drink**:
@@ -166,7 +166,7 @@ The hydration a chicken with water available averages over its drinks. Offline c
 ## Egg laying
 
 **Hen bed**:
-A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Sorts by its sort line, so a chicken walking past behind it is partly hidden. Not removable once placed, but repositionable by holding and dragging it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
+A fixture, added via the toolbar, that a laying hen's egg goes into when a slot is open. Holds up to three eggs at once, one per egg slot — full once every slot is occupied. Sorts by its sort line, so a chicken walking past behind it is partly hidden. Repositionable by holding and dragging it, or taken back by dropping it on the toolbar, which collects any eggs in it — a drop that would leave any part of it outside the play area snaps back to where it was instead. Two beds may partially overlap, but a placement or drag that would leave one bed's center too close to another's on both axes at once is nudged apart instead of letting them sit directly on top of each other (see ADR-0014).
 _Avoid_: Bed (hen bed is the canonical term, to stay unambiguous alongside other future toolbar items). "Nest" is reserved for the chicken state (see Nest) — a hen bed itself is never called a nest.
 
 **Egg slot**:
@@ -189,22 +189,37 @@ The single shared owner of every chicken, every placed hen bed, every active egg
 _Avoid_: Coop (retired — beds/eggs/droppings are no longer a separate owner from the chickens themselves)
 
 **Toolbar**:
-The bottom UI band's control for placing world objects: a row of item icons, each defined by its icon and what it places. Hold an item's slot and drag into the play area to place its item there for free; dropping outside the play area cancels. A tool's slot works the same way, except the drop acts on whatever it lands on instead of placing anything. When the row is wider than the band it scrolls sideways — a sideways swipe on a slot scrolls rather than picking the item up. Hen bed, water bowl, seed patch, lettuce, mealworm, watermelon slice, ash, and the bucket are its entries so far — adding another item is meant to be one more definition, not new UI code.
+The bottom UI band's control for using items: a row of ten slots, always all shown, empty ones too. Tapping a slot selects its item; tapping it again (or an empty slot) deselects, and tapping another switches. Items are free and never run out. When the row is wider than the band it scrolls sideways — a touch that moves more than a short distance scrolls and never selects. Slots are positional: an item stays in the slot the player put it in, rearranged only in the barn view. A fixture dragged off the map can be dropped anywhere on the toolbar to take it back (see Fixture). Hen bed, water bowl, seed patch, lettuce, mealworm, watermelon slice, ash, and the bucket are its items so far — adding another is meant to be one more definition, not new UI code.
+
+**Selected** (item):
+The one toolbar item, if any, that a tap in the play area currently uses — placing food, a treat, or a fixture where tapped, or refilling the bowl tapped with the bucket — instead of doing what that tap would normally do on a chicken, egg, dropping, or placed item (see ADR-0022). Shown by a highlighted slot. A selection lasts one use: placing the item or refilling a bowl deselects it, so using it again means selecting it again from the toolbar, while a tap that does nothing (a blocked spot, nothing to refill) leaves it selected. The item itself is never used up — not to be confused with a treat's one use. Also deselected by starting a long-press drag, opening the barn view or any dialog, or leaving the app. Never saved.
+_Avoid_: Armed, active, equipped
+
+**Barn**:
+Thirty more slots, beyond the toolbar's ten, where items the player isn't using wait — still free and unlimited. Every item type sits in exactly one slot, toolbar or barn; there are never two of a type, and no counts. Arranged only in the barn view. An item the save doesn't mention takes the first open toolbar slot, else the first open barn slot.
+_Avoid_: Storage, inventory, stash (stash is the egg counter's)
+
+**Barn view**:
+The full-screen view the barn button opens, hiding the garden while the game keeps running behind it: a grid of four columns by ten rows, the first column the toolbar's slots (on a tinted backing, headed "Toolbar") and the other three the barn's (headed "Barn"), split by a divider. Long-pressing an item lifts it; the slot it would land in is highlighted, a drop on another slot swaps the two, and a drop off the grid snaps back. A quick tap shows the item's name. Opening it deselects any selected item; the X in its top-right corner closes it.
+_Avoid_: Inventory screen, barn panel (retired)
+
+**Barn button**:
+The slot-styled button at the right of the top UI band, beside the egg counter, that opens the barn view. The same fixed-size picture — its frame and a small barn icon, drawn at the world's pixel size — on every device, with a small gap below the screen's top (or below a notch). Flashes when a fixture taken back off the map lands in the barn.
 
 **Slot**:
-The Toolbar's fixed-size, uniform square background behind each item's icon. Tapping and holding anywhere within a slot's bounds — not just on its icon — starts that item's drag. An item's icon renders shrunk to fit inside its slot; the dragged ghost still renders at the item's true world size.
+The fixed-size, uniform square behind each item's icon — in the toolbar and the barn view alike — which may be empty. Drawn as a pixel-art frame at the same pixel size as the world, like every panel and button in the game's UI (see ADR-0024); a selected slot's frame turns blue. A tap anywhere within a slot's bounds — not just on its icon — counts. An item's icon renders shrunk to fit inside its slot.
 _Avoid_: Tile (already the ground's unit term), button
 
 **Egg counter**:
-The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.
+The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Shown in a pixel-art frame as tall as the barn button, just to its left, which widens as the count gains digits. Updates the moment an egg is collected.
 
 **UI band**:
-One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height, not a fixed height of their own. The ground shows through behind both bands.
+One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter and barn button on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height: the top band just fits the egg counter and barn button, and the bottom band takes the rest (see ADR-0025). The ground shows through behind both bands.
 
 ## Feeding
 
 **Food source**:
-Something the player places in the play area for chickens to repeatedly eat from, holding a pool of food units (its capacity) that eating draws down. Any number of chickens can eat from it at once — they simply deplete it faster together — and it disappears the moment its pool reaches zero, never on a timer. A placement that would land on (or very near) another food source or a treat is nudged a little instead of stacking on top of it; a placement outside the play area entirely is cancelled. Seed patch and lettuce are the two so far.
+Something the player places in the play area for chickens to repeatedly eat from, holding a pool of food units (its capacity) that eating draws down. Any number of chickens can eat from it at once — they simply deplete it faster together — and it disappears the moment its pool reaches zero, never on a timer. A placement that would land on (or very near) another food source or a treat is nudged a little instead of stacking on top of it; a tap where it wouldn't fit inside the play area places nothing. Seed patch and lettuce are the two so far.
 _Avoid_: Feeder (implies a container), station, plate, food item (retired: one-use items left Feed and became treats)
 
 **Seed patch**:

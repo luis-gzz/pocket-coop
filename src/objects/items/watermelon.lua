@@ -16,7 +16,7 @@ Watermelon.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 -- the payoff.
 Watermelon.GAUGE = "hydration"
 Watermelon.AMOUNT = 50
-Watermelon.DESCRIPTOR = { icon = IMAGE_PATH, width = Watermelon.WIDTH, height = Watermelon.HEIGHT, type = "watermelon" }
+Watermelon.DESCRIPTOR = { icon = IMAGE_PATH, width = Watermelon.WIDTH, height = Watermelon.HEIGHT, type = "watermelon", name = "Watermelon slice" }
 
 -- Share of the slice's width a peck point may land in.
 local PECK_SPAN = 0.6

@@ -2,6 +2,8 @@ local Constants = require("src.util.constants")
 local Color = require("src.util.color")
 local Layout = require("src.ui.layout")
 local Font = require("src.ui.font")
+local Frame = require("src.ui.frame")
+local Selection = require("src.ui.selection")
 
 -- A small popover with a live-refreshed bar per row. Either anchored beside a
 -- world point, or (content.corner) in a play area corner clear of it.
@@ -16,14 +18,11 @@ local BAR_WIDTH = 50 * Constants.PIXEL_SCALE
 local BAR_HEIGHT = 4 * Constants.PIXEL_SCALE
 local LABEL_ROW_GAP = 4 * Constants.PIXEL_SCALE -- between a labeled bar and the next row's label
 local PANEL_PADDING = 5 * Constants.PIXEL_SCALE
-local PANEL_CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
-local PANEL_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 local TEXT_BAR_GAP = 2 * Constants.PIXEL_SCALE -- gap between a bar's label and the bar itself
 local EDGE_MARGIN = 2 * Constants.PIXEL_SCALE -- keeps the panel off the very edge of the screen when clamped
 
-local PANEL_FILL_HEX = "f2f0e5"
-local PANEL_STROKE_HEX = "3a3858"
 local BAR_FILL_HEX = "8ab060"
+local BAR_EMPTY_HEX = "b8b5b9"
 
 local ANCHOR_GAP = 10 * Constants.PIXEL_SCALE -- vertical gap kept between the anchor point and the panel
 -- Half-height buffer approximating the anchor's on-screen size, used to
@@ -50,7 +49,7 @@ end
 local function makeBar(group, x, barY)
 	local bg = display.newRect(group, x, barY, BAR_WIDTH, BAR_HEIGHT)
 	bg.anchorX = 0
-	bg:setFillColor(0.82, 0.82, 0.82)
+	bg:setFillColor(Color.hexToRGB(BAR_EMPTY_HEX))
 
 	local fill = display.newRect(group, x, barY, BAR_WIDTH, BAR_HEIGHT)
 	fill.anchorX = 0
@@ -163,8 +162,9 @@ function Tooltip.hide()
 	current = nil
 end
 
--- content: { x, y, rows, title?, corner?, source?, onShow?, onHide? }, where
--- source (the chicken/item it describes) makes tapping it again close it. Each row is
+-- content: { x, y, rows, title?, corner?, source?, onShow?, onHide?, keepWhileSelecting? }, where
+-- source (the chicken/item it describes) makes tapping it again close it, and
+-- keepWhileSelecting (chickens, fixtures) keeps it open through selecting and using an item. Each row is
 -- { label | icon, getValue } or { icon, text } - see chicken.lua/lettuce.lua/
 -- mealworm.lua for shape.
 function Tooltip.show(content)
@@ -199,6 +199,10 @@ function Tooltip.show(content)
 			dismiss:addEventListener("tap", function()
 				if ignoringTap then
 					return true
+				end
+				-- Stays open while the selected item is used; the tap carries on to it.
+				if Selection.get() and current and current.content.keepWhileSelecting then
+					return false
 				end
 				-- Let the tap carry on to whatever's beneath, so it acts in the same tap.
 				dismissedSource = current and current.content.source
@@ -262,15 +266,14 @@ function Tooltip.show(content)
 	local place = content.corner and cornerPosition or anchoredPosition
 	group.x, group.y = place(content.x, content.y, panelWidth, panelHeight)
 
-	panel = display.newRoundedRect(group, panelWidth / 2, panelHeight / 2, panelWidth, panelHeight, PANEL_CORNER_RADIUS)
-	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
-	panel.strokeWidth = PANEL_STROKE_WIDTH
-	panel:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))
+	panel = Frame.new(group, 0, 0, panelWidth, panelHeight)
 	group:insert(contentGroup)
 
 	local function refresh()
 		for _, entry in ipairs(fills) do
-			entry.fill.width = math.max(1, BAR_WIDTH * (entry.getValue() / 100))
+			-- Whole art px, so the bar stays on the pixel grid (ADR-0024).
+			local pixels = math.floor(BAR_WIDTH / Constants.PIXEL_SCALE * entry.getValue() / 100 + 0.5)
+			entry.fill.width = math.max(1, pixels * Constants.PIXEL_SCALE)
 		end
 		for _, entry in ipairs(liveIcons) do
 			local frame = entry.getFrame()
@@ -284,5 +287,12 @@ function Tooltip.show(content)
 
 	current = { dismiss = dismiss, group = group, refresh = refresh, content = content }
 end
+
+-- Selecting an item closes every tooltip but a chicken's or fixture's.
+Selection.onChanged(function(itemType)
+	if itemType and current and not current.content.keepWhileSelecting then
+		Tooltip.hide()
+	end
+end)
 
 return Tooltip

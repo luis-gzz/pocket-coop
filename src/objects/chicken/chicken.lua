@@ -9,6 +9,8 @@ local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
+local DragLift = require("src.util.drag_lift")
 local HappinessIcon = require("src.ui.happiness_icon")
 local Wiggle = require("src.util.wiggle")
 local Shadow = require("src.objects.shadow")
@@ -930,9 +932,13 @@ function Chicken:setupTouch()
 
 	local function beginHeld(x, y)
 		local view = self.view
-		self.dragOffsetX = view.x - x
-		self.dragOffsetY = view.y - y
+		Selection.clear()
 		self.machine:changeState("held")
+		self.lift = DragLift.begin(view.x, view.y, x, y, GROUND_OFFSET, function(liftX, liftY)
+			local bounds = getBounds()
+			view.x = clamp(liftX, bounds.minX, bounds.maxX)
+			view.y = clamp(liftY, bounds.minY, bounds.maxY)
+		end)
 	end
 
 	local function isOverChicken(x, y)
@@ -978,10 +984,7 @@ function Chicken:setupTouch()
 				if self.pendingTouch and not isOverChicken(event.x, event.y) then
 					cancelPendingTouch()
 				elseif self.machine.name == "held" then
-					local view = self.view
-					local bounds = getBounds()
-					view.x = clamp(event.x + self.dragOffsetX, bounds.minX, bounds.maxX)
-					view.y = clamp(event.y + self.dragOffsetY, bounds.minY, bounds.maxY)
+					DragLift.move(self.lift, event.x, event.y)
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(hitArea, nil)
@@ -991,11 +994,13 @@ function Chicken:setupTouch()
 					timer.cancel(self.longPressHandle)
 					self.longPressHandle = nil
 					self.pendingTouch = nil
-					if event.phase == "ended" then
+					-- With an item selected, the tap uses it instead (ADR-0022).
+					if event.phase == "ended" and not Selection.get() then
 						Tooltip.show({
 							x = self.view.x,
 							y = self.view.y,
 							corner = true,
+							keepWhileSelecting = true,
 							title = NAME,
 							source = self,
 							onShow = function()
@@ -1016,6 +1021,8 @@ function Chicken:setupTouch()
 						})
 					end
 				elseif self.machine.name == "held" then
+					DragLift.finish(self.lift)
+					self.lift = nil
 					-- Releasing in place synthesizes a tap; don't let it close the tooltip.
 					Tooltip.ignoreNextTap()
 					local bounds = getBounds()

@@ -6,7 +6,7 @@ local Wiggle = {}
 
 -- isActive is polled at the start of every step, so the wiggle halts itself
 -- the moment the caller's own state goes false, without Wiggle needing to
--- know why (a chicken's self.isHeld, a bed's isDragging, a ghost's ~= nil).
+-- know why (a chicken's self.isHeld, a bed's isDragging).
 function Wiggle.start(target, angle, stepTime, isActive)
 	local handle = { target = target, stepTime = stepTime, transitionHandle = nil }
 	local nextAngle = angle

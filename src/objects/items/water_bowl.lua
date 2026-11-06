@@ -3,6 +3,9 @@ local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
+local DropZone = require("src.ui.drop_zone")
+local DragLift = require("src.util.drag_lift")
 local Footprints = require("src.systems.footprints")
 
 -- The view + drag side of a water bowl (CONTEXT.md). Bowls owns the record
@@ -18,7 +21,7 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 21, 13
 
 WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 WaterBowl.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl" }
+WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl", name = "Water bowl", fixture = true }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 WaterBowl.FOOTPRINT_SHARE = 0.25
@@ -35,9 +38,10 @@ local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 
 -- record: the bowl Bowls owns; a drag mutates record.x/y, then onMoved()
--- saves. resolvePlacement(x, y) returns the final x, y or nil to snap back.
+-- saves. resolvePlacement(x, y) returns the final x, y or nil to snap back;
+-- onReturn() is called instead on a drop on the toolbar, removing it from the map.
 -- Sorts by its sort line (ADR-0021), like a hen bed.
-function WaterBowl.new(record, onMoved, resolvePlacement)
+function WaterBowl.new(record, onMoved, resolvePlacement, onReturn)
 	local group = display.newGroup()
 	YSort.getGroup():insert(group)
 	group.x = record.x
@@ -80,15 +84,20 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 	local isDragging = false
 	local longPressHandle = nil
 	local originalX, originalY
-	local dragOffsetX, dragOffsetY
+	local lift = nil
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		record.dragging = true
 		originalX, originalY = record.x, record.y
-		dragOffsetX = group.x - startX
-		dragOffsetY = group.y - startY
+		-- Lifted above the UI while dragged, so it shows over the toolbar.
+		display.getCurrentStage():insert(group)
+		lift = DragLift.begin(group.x, group.y, startX, startY, WaterBowl.HEIGHT / 2, function(x, y)
+			group.x, group.y = x, y
+			DropZone.setHover(DropZone.contains(x, y + WaterBowl.HEIGHT / 2))
+		end)
 		wiggleHandle = Wiggle.start(group, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
 			return isDragging
 		end)
@@ -97,6 +106,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 	local function showTooltip()
 		Tooltip.show({
 			source = record,
+			keepWhileSelecting = true,
 			x = record.x,
 			y = record.y,
 			rows = {
@@ -121,8 +131,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 		elseif hitArea.isFocus then
 			if event.phase == "moved" then
 				if isDragging then
-					group.x = event.x + dragOffsetX
-					group.y = event.y + dragOffsetY
+					DragLift.move(lift, event.x, event.y)
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(hitArea, nil)
@@ -132,7 +141,7 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 				if longPressHandle then
 					timer.cancel(longPressHandle)
 					longPressHandle = nil
-					if pendingTouch and event.phase == "ended" then
+					if pendingTouch and event.phase == "ended" and not Selection.get() then
 						showTooltip()
 					end
 				end
@@ -142,8 +151,17 @@ function WaterBowl.new(record, onMoved, resolvePlacement)
 					isDragging = false
 					Wiggle.stop(wiggleHandle)
 					wiggleHandle = nil
+					DragLift.finish(lift)
+					lift = nil
 					-- Releasing in place synthesizes a tap; don't let it close a tooltip.
 					Tooltip.ignoreNextTap()
+					DropZone.setHover(false)
+					-- Dropped on the toolbar: off the map and back into the inventory.
+					if event.phase == "ended" and DropZone.contains(group.x, group.y + WaterBowl.HEIGHT / 2) then
+						onReturn()
+						return true
+					end
+					YSort.getGroup():insert(group)
 					local finalX, finalY
 					if event.phase == "ended" then
 						finalX, finalY = resolvePlacement(group.x, group.y)

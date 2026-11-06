@@ -21,7 +21,7 @@ local DEPTH_BIAS = 0.5
 Lettuce.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Lettuce.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 Lettuce.CAPACITY = 200 -- food units (src/systems/tuning.lua): ~2 fed-chicken-hours
-Lettuce.DESCRIPTOR = { icon = IMAGE_PATH, width = Lettuce.WIDTH, height = Lettuce.HEIGHT, type = "lettuce" }
+Lettuce.DESCRIPTOR = { icon = IMAGE_PATH, width = Lettuce.WIDTH, height = Lettuce.HEIGHT, type = "lettuce", name = "Lettuce" }
 
 -- item: { kind="source", type="lettuce", x, y, width, height, capacity,
 -- remaining } owned by Feed. A group at the lettuce's bottom edge, so

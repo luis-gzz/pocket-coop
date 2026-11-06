@@ -1,6 +1,8 @@
 local YSort = require("src.systems.y_sort")
 local Wiggle = require("src.util.wiggle")
 local Tooltip = require("src.ui.tooltip")
+local Selection = require("src.ui.selection")
+local DragLift = require("src.util.drag_lift")
 local Shadow = require("src.objects.shadow")
 
 -- The view + drag side shared by every treat (CONTEXT.md's Treat): a
@@ -49,26 +51,26 @@ function TreatView.new(item, opts, resolveDrop)
 	local isDragging = false
 	local longPressHandle = nil
 	local originalX, originalY
-	local dragOffsetX, dragOffsetY
+	local lift = nil
 	local wiggleHandle = nil
 
+	local function moveTo(x, y)
+		view.x, view.y = x, y
+		item.x, item.y = x, y
+	end
+
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		item.dragging = true
 		if item.claimedBy then
 			item.claimedBy:abandonTarget()
 		end
 		originalX, originalY = item.x, item.y
-		dragOffsetX = view.x - startX
-		dragOffsetY = view.y - startY
+		lift = DragLift.begin(view.x, view.y, startX, startY, item.height / 2, moveTo)
 		wiggleHandle = Wiggle.start(sprite, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
 			return isDragging
 		end)
-	end
-
-	local function moveTo(x, y)
-		view.x, view.y = x, y
-		item.x, item.y = x, y
 	end
 
 	local function showTooltip()
@@ -97,7 +99,7 @@ function TreatView.new(item, opts, resolveDrop)
 		elseif sprite.isFocus then
 			if event.phase == "moved" then
 				if isDragging then
-					moveTo(event.x + dragOffsetX, event.y + dragOffsetY)
+					DragLift.move(lift, event.x, event.y)
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(sprite, nil)
@@ -107,7 +109,7 @@ function TreatView.new(item, opts, resolveDrop)
 				if longPressHandle then
 					timer.cancel(longPressHandle)
 					longPressHandle = nil
-					if pendingTouch and event.phase == "ended" then
+					if pendingTouch and event.phase == "ended" and not Selection.get() then
 						showTooltip()
 					end
 				end
@@ -117,6 +119,8 @@ function TreatView.new(item, opts, resolveDrop)
 					isDragging = false
 					Wiggle.stop(wiggleHandle)
 					wiggleHandle = nil
+					DragLift.finish(lift)
+					lift = nil
 					-- Releasing in place synthesizes a tap; don't let it close a tooltip.
 					Tooltip.ignoreNextTap()
 					local finalX, finalY

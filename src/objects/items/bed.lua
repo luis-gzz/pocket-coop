@@ -3,6 +3,9 @@ local YSort = require("src.systems.y_sort")
 local Shadow = require("src.objects.shadow")
 local Wiggle = require("src.util.wiggle")
 local Footprints = require("src.systems.footprints")
+local Selection = require("src.ui.selection")
+local DropZone = require("src.ui.drop_zone")
+local DragLift = require("src.util.drag_lift")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -16,7 +19,7 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed" }
+Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed", name = "Hen bed", fixture = true }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 Bed.FOOTPRINT_SHARE = 0.25
@@ -50,13 +53,14 @@ local WIGGLE_STEP_TIME = 90
 -- onMoved() is called right after that mutation, so Garden can save.
 -- resolvePlacement(x, y) is Garden's own fixture spacing check
 -- (Garden.resolveBedPlacement, ADR-0014) - it returns the final (possibly
--- nudged) x, y on a valid drop, or nil to snap back.
+-- nudged) x, y on a valid drop, or nil to snap back. onReturn() is called
+-- instead when it's dropped on the toolbar, and removes it from the map.
 --
 -- A bed is a group so an occupying egg can be inserted on top of the nest
 -- art and stay visually "inside" it (see egg.lua), instead of competing with
 -- the nest for Y-sort depth. The group sorts in the main sort by its sort
 -- line (ADR-0021), so a chicken passing behind is partly hidden.
-function Bed.new(record, onMoved, resolvePlacement)
+function Bed.new(record, onMoved, resolvePlacement, onReturn)
 	local group = display.newGroup()
 	YSort.getGroup():insert(group)
 	group.x = record.x
@@ -75,15 +79,20 @@ function Bed.new(record, onMoved, resolvePlacement)
 	local isDragging = false
 	local longPressHandle = nil
 	local originalX, originalY
-	local dragOffsetX, dragOffsetY
+	local lift = nil
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
+		Selection.clear()
 		isDragging = true
 		record.dragging = true
 		originalX, originalY = record.x, record.y
-		dragOffsetX = group.x - startX
-		dragOffsetY = group.y - startY
+		-- Lifted above the UI while dragged, so it shows over the toolbar.
+		display.getCurrentStage():insert(group)
+		lift = DragLift.begin(group.x, group.y, startX, startY, Bed.HEIGHT / 2, function(x, y)
+			group.x, group.y = x, y
+			DropZone.setHover(DropZone.contains(x, y + Bed.HEIGHT / 2))
+		end)
 		wiggleHandle = Wiggle.start(group, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
 			return isDragging
 		end)
@@ -105,8 +114,7 @@ function Bed.new(record, onMoved, resolvePlacement)
 		elseif nest.isFocus then
 			if event.phase == "moved" then
 				if isDragging then
-					group.x = event.x + dragOffsetX
-					group.y = event.y + dragOffsetY
+					DragLift.move(lift, event.x, event.y)
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(nest, nil)
@@ -122,6 +130,15 @@ function Bed.new(record, onMoved, resolvePlacement)
 					isDragging = false
 					Wiggle.stop(wiggleHandle)
 					wiggleHandle = nil
+					DragLift.finish(lift)
+					lift = nil
+					DropZone.setHover(false)
+					-- Dropped on the toolbar: off the map and back into the inventory.
+					if event.phase == "ended" and DropZone.contains(group.x, group.y + Bed.HEIGHT / 2) then
+						onReturn()
+						return true
+					end
+					YSort.getGroup():insert(group)
 					local finalX, finalY
 					if event.phase == "ended" then
 						finalX, finalY = resolvePlacement(group.x, group.y)
