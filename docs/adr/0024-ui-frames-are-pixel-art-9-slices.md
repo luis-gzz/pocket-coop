@@ -1,0 +1,3 @@
+# UI frames are pixel-art 9-slices at world scale
+
+Slots, panels, and buttons were engine-drawn rounded rectangles with smooth strokes, which read as out of place next to the pixel-art world. Every UI frame is now a 5x5 pixel-art sprite cut into a 9-slice (2px corners, 1px stretchable edges and center) and drawn at the world's pixel scale, with every frame size snapped to whole art pixels. We picked 9-slices over code-built pixel rectangles so the frames can be redrawn in Aseprite without code changes, and over fixed-size sprites because the same frame must fit toolbar slots, the barn view's fitted grid, HUD buttons, and text-sized panels. Variants (selected, button, backing) are separate sprites of the same shape. The debug overlay is exempt.

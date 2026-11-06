@@ -1,6 +1,6 @@
 local Constants = require("src.util.constants")
-local Color = require("src.util.color")
 local Font = require("src.ui.font")
+local Frame = require("src.ui.frame")
 local Selection = require("src.ui.selection")
 
 -- Welcome-back card shown after a full offline catch-up. Dismissed by OK or
@@ -11,17 +11,9 @@ local WelcomeCard = {}
 -- piece of UI in the project.
 local PANEL_WIDTH = 110 * Constants.PIXEL_SCALE
 local PANEL_PADDING = 8 * Constants.PIXEL_SCALE
-local PANEL_CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
-local PANEL_STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
 local TEXT_BUTTON_GAP = 6 * Constants.PIXEL_SCALE
 local BUTTON_WIDTH = 30 * Constants.PIXEL_SCALE
 local BUTTON_HEIGHT = 14 * Constants.PIXEL_SCALE
-local BUTTON_CORNER_RADIUS = 2 * Constants.PIXEL_SCALE
-
--- Shared with src/ui/tooltip.lua's panel.
-local PANEL_FILL_HEX = "f2f0e5"
-local PANEL_STROKE_HEX = "3a3858"
-local BUTTON_FILL_HEX = "8ab060"
 
 local current = nil -- { dismiss, group }
 
@@ -82,10 +74,9 @@ function WelcomeCard.show(elapsedSeconds)
 	text:setFillColor(0.2, 0.2, 0.2)
 
 	local panelHeight = PANEL_PADDING * 2 + Font.inkHeight(text, Constants.FONT_SIZE_SMALL) + TEXT_BUTTON_GAP + BUTTON_HEIGHT
-	local panel = display.newRoundedRect(group, 0, 0, PANEL_WIDTH, panelHeight, PANEL_CORNER_RADIUS)
-	panel:setFillColor(Color.hexToRGB(PANEL_FILL_HEX))
-	panel.strokeWidth = PANEL_STROKE_WIDTH
-	panel:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))
+	local panel, panelWidth
+	panel, panelWidth, panelHeight = Frame.new(group, 0, 0, PANEL_WIDTH, panelHeight)
+	panel.x, panel.y = -panelWidth / 2, -panelHeight / 2
 	-- Taps on the panel itself (outside the button) do nothing, rather than
 	-- falling through to the dismiss rect.
 	panel:addEventListener("tap", function()
@@ -96,10 +87,7 @@ function WelcomeCard.show(elapsedSeconds)
 	Font.placeCapsAt(text, -panelHeight / 2 + PANEL_PADDING, Constants.FONT_SIZE_SMALL)
 
 	local buttonY = panelHeight / 2 - PANEL_PADDING - BUTTON_HEIGHT / 2
-	local button = display.newRoundedRect(group, 0, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT, BUTTON_CORNER_RADIUS)
-	button:setFillColor(Color.hexToRGB(BUTTON_FILL_HEX))
-	button.strokeWidth = PANEL_STROKE_WIDTH
-	button:setStrokeColor(Color.hexToRGB(PANEL_STROKE_HEX))
+	local button = Frame.new(group, -BUTTON_WIDTH / 2, buttonY - BUTTON_HEIGHT / 2, BUTTON_WIDTH, BUTTON_HEIGHT, "button")
 	button:addEventListener("tap", function()
 		WelcomeCard.hide()
 		return true

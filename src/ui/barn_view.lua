@@ -5,6 +5,7 @@ local Catalog = require("src.ui.catalog")
 local Inventory = require("src.systems.inventory")
 local Selection = require("src.ui.selection")
 local Slot = require("src.ui.slot")
+local Frame = require("src.ui.frame")
 local Layout = require("src.ui.layout")
 
 -- The barn view (CONTEXT.md's Barn): a full-screen grid, opened from the
@@ -27,14 +28,15 @@ local LABEL_PADDING = 3 * Constants.PIXEL_SCALE
 local LABEL_TIME = 1500 -- ms a tapped item's name shows
 
 local BACKDROP_HEX = "e5ceb4"
-local TOOLBAR_TINT_HEX = "d3a068"
 local INK_HEX = "3a3858"
-local LABEL_FILL_HEX = "f2f0e5"
 
 -- ms; matches the other long-press thresholds (chicken.lua, bed.lua).
 local LONG_PRESS_TIME = 350
 -- A move past this before the long press fires cancels it.
 local TOUCH_SLOP = 10
+
+local CLOSE_ICON_PATH = "assets/ui/close_icon.png"
+local CLOSE_ICON_PIXELS = 7
 
 local itemsByType = {}
 for _, item in ipairs(Catalog) do
@@ -86,14 +88,12 @@ local function showName(cell)
 	local text = display.newText(label, item.name, 0, 0, Constants.FONT, Constants.FONT_SIZE_SMALL)
 	text:setFillColor(Color.hexToRGB(INK_HEX))
 	Font.centerCapsOn(text, 0, Constants.FONT_SIZE_SMALL)
-	local height = Font.capHeight(Constants.FONT_SIZE_SMALL) + LABEL_PADDING * 2
-	local box = display.newRoundedRect(label, 0, 0, text.width + LABEL_PADDING * 2, height, 2 * Constants.PIXEL_SCALE)
-	box:setFillColor(Color.hexToRGB(LABEL_FILL_HEX))
-	box.strokeWidth = 1 * Constants.PIXEL_SCALE
-	box:setStrokeColor(Color.hexToRGB(INK_HEX))
+	local box, width, height = Frame.new(label, 0, 0, text.width + LABEL_PADDING * 2,
+		Font.capHeight(Constants.FONT_SIZE_SMALL) + LABEL_PADDING * 2)
+	box.x, box.y = -width / 2, -height / 2
 	box:toBack()
 	local bounds = safeRect()
-	label.x = math.max(bounds.minX + box.width / 2, math.min(bounds.maxX - box.width / 2, cell.x + cell.size / 2))
+	label.x = math.max(bounds.minX + width / 2, math.min(bounds.maxX - width / 2, cell.x + cell.size / 2))
 	label.y = cell.y - height / 2 - SLOT_GAP
 	current.label = label
 	current.labelHandle = timer.performWithDelay(LABEL_TIME, function()
@@ -215,20 +215,22 @@ end
 -- Slot size and column positions that fit the safe area. The divider gap
 -- widens so the "Toolbar" heading, centered over its column, never crosses it.
 local function computeLayout(bounds, headingHeight, toolbarHeadingWidth)
-	local gridTop = Layout.getHudButtonRect(Slot.SIZE).maxY + HEADING_GAP + headingHeight + HEADING_GAP
+	local gridTop = Layout.getHudRect().maxY + HEADING_GAP + headingHeight + HEADING_GAP
 	local availableHeight = bounds.maxY - SCREEN_MARGIN - gridTop
 	local widestGap = math.max(DIVIDER_GAP, toolbarHeadingWidth + HEADING_GAP * 2)
 	local availableWidth = bounds.maxX - bounds.minX - SCREEN_MARGIN * 2 - widestGap
 	local columns = 1 + BARN_COLUMNS
+	local unit = Constants.PIXEL_SCALE
 	local size = math.min(
 		Slot.SIZE,
 		(availableHeight - (ROWS - 1) * SLOT_GAP) / ROWS,
 		(availableWidth - (columns - 2) * SLOT_GAP) / columns
 	)
+	size = math.max(1, math.floor(size / unit)) * unit -- whole art px (ADR-0024)
 
-	local dividerGap = math.max(DIVIDER_GAP, toolbarHeadingWidth - size + HEADING_GAP * 2)
+	local dividerGap = math.ceil(math.max(DIVIDER_GAP, toolbarHeadingWidth - size + HEADING_GAP * 2) / unit) * unit
 	local gridWidth = columns * size + (columns - 2) * SLOT_GAP + dividerGap
-	local left = (bounds.minX + bounds.maxX) / 2 - gridWidth / 2
+	local left = math.floor(((bounds.minX + bounds.maxX) / 2 - gridWidth / 2) / unit) * unit
 	local columnX = { left }
 	for column = 2, columns do
 		columnX[column] = left + size + dividerGap + (column - 2) * (size + SLOT_GAP)
@@ -238,22 +240,11 @@ end
 
 -- Same size and spot as the barn button that opened the view.
 local function drawCloseButton(root)
-	local rect = Layout.getHudButtonRect(Slot.SIZE)
-	local button = display.newGroup()
-	root:insert(button)
-	button.x = (rect.minX + rect.maxX) / 2
-	button.y = (rect.minY + rect.maxY) / 2
-	local box = display.newRoundedRect(button, 0, 0, rect.size, rect.size, Slot.BUTTON_CORNER_RADIUS)
-	box:setFillColor(Color.hexToRGB(LABEL_FILL_HEX))
-	box.strokeWidth = 1 * Constants.PIXEL_SCALE
-	box:setStrokeColor(Color.hexToRGB(INK_HEX))
-	local arm = rect.size / 4
-	for _, sign in ipairs({ 1, -1 }) do
-		local line = display.newLine(button, -arm, -arm * sign, arm, arm * sign)
-		line.strokeWidth = 1 * Constants.PIXEL_SCALE
-		line:setStrokeColor(Color.hexToRGB(INK_HEX))
-	end
-	box:addEventListener("tap", function()
+	local rect = Layout.getHudRect()
+	local button = Slot.new(root, rect.minX, rect.minY, nil, rect.size, rect.pixel)
+	Slot.drawPixelIcon(button, CLOSE_ICON_PATH, CLOSE_ICON_PIXELS,
+		math.floor((Layout.HUD_PIXELS - CLOSE_ICON_PIXELS) / 2), rect.pixel)
+	button.background:addEventListener("tap", function()
 		BarnView.hide()
 		return true
 	end)
@@ -287,16 +278,16 @@ function BarnView.show()
 
 	-- The toolbar column sits on a tinted backing, with a divider before the barn.
 	local columnHeight = ROWS * layout.size + (ROWS - 1) * SLOT_GAP
-	local tint = display.newRoundedRect(root, layout.columnX[1] + layout.size / 2,
-		layout.gridTop + columnHeight / 2, layout.size + TINT_PADDING * 2, columnHeight + TINT_PADDING * 2,
-		3 * Constants.PIXEL_SCALE)
-	tint:setFillColor(Color.hexToRGB(TOOLBAR_TINT_HEX))
+	Frame.new(root, layout.columnX[1] - TINT_PADDING, layout.gridTop - TINT_PADDING,
+		layout.size + TINT_PADDING * 2, columnHeight + TINT_PADDING * 2, "backing")
 
-	local dividerX = layout.columnX[1] + layout.size + layout.dividerGap / 2
-	local divider = display.newLine(root, dividerX, layout.gridTop - HEADING_GAP - headingHeight,
-		dividerX, layout.gridTop + columnHeight)
-	divider.strokeWidth = 1 * Constants.PIXEL_SCALE
-	divider:setStrokeColor(Color.hexToRGB(INK_HEX))
+	-- One art pixel wide, on the art-pixel grid.
+	local unit = Constants.PIXEL_SCALE
+	local dividerX = layout.columnX[1] + layout.size + math.floor(layout.dividerGap / unit / 2) * unit
+	local dividerTop = layout.gridTop - HEADING_GAP - headingHeight
+	local divider = display.newRect(root, dividerX, dividerTop, unit, layout.gridTop + columnHeight - dividerTop)
+	divider.anchorX, divider.anchorY = 0, 0
+	divider:setFillColor(Color.hexToRGB(INK_HEX))
 
 	local headingY = layout.gridTop - HEADING_GAP - headingHeight
 	toolbarHeading.x = layout.columnX[1] + layout.size / 2

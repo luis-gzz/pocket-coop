@@ -16,7 +16,7 @@ _Avoid_: Island (retired — there is no longer a bordered play space), backdrop
 A fixed-size square unit of the ground, repeated with no gaps from the camera's top-left corner until the whole camera is covered; tiles at the right and bottom edges may be cut off.
 
 **Play area**:
-The region of the camera where the chicken can move and world objects can be placed: between the two UI bands vertically (stopping half a tile short of the bottom band), and inset from the safe area's left and right edges by a small margin. Not marked by anything on screen — the ground looks the same on either side of its edge.
+The region of the camera where the chicken can move and world objects can be placed: between the two UI bands vertically (stopping just short of the bottom band), and inset from the safe area's left and right edges by a small margin. Not marked by anything on screen — the ground looks the same on either side of its edge.
 _Avoid_: Island
 
 **Chicken**:
@@ -204,17 +204,17 @@ The full-screen view the barn button opens, hiding the garden while the game kee
 _Avoid_: Inventory screen, barn panel (retired)
 
 **Barn button**:
-The slot-styled button at the right of the top UI band, beside the egg counter, that opens the barn view. Flashes when a fixture taken back off the map lands in the barn.
+The slot-styled button at the right of the top UI band, beside the egg counter, that opens the barn view. The same fixed-size picture — its frame and a small barn icon, drawn at the world's pixel size — on every device, with a small gap below the screen's top (or below a notch). Flashes when a fixture taken back off the map lands in the barn.
 
 **Slot**:
-The fixed-size, uniform square background behind each item's icon — in the toolbar and the barn view alike — which may be empty. A tap anywhere within a slot's bounds — not just on its icon — counts. An item's icon renders shrunk to fit inside its slot.
+The fixed-size, uniform square behind each item's icon — in the toolbar and the barn view alike — which may be empty. Drawn as a pixel-art frame at the same pixel size as the world, like every panel and button in the game's UI (see ADR-0024); a selected slot's frame turns blue. A tap anywhere within a slot's bounds — not just on its icon — counts. An item's icon renders shrunk to fit inside its slot.
 _Avoid_: Tile (already the ground's unit term), button
 
 **Egg counter**:
-The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Updates the moment an egg is collected.
+The top UI band's display of the player's total collected eggs — their stash, not the number of eggs currently sitting uncollected in the world. Shown in a pixel-art frame as tall as the barn button, just to its left, which widens as the count gains digits. Updates the moment an egg is collected.
 
 **UI band**:
-One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter and barn button on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height, not a fixed height of their own. The ground shows through behind both bands.
+One of two strips of the camera, above and below the play area, reserved for on-screen controls — the egg counter and barn button on top, the toolbar on the bottom — rather than gameplay. Sized from whatever space is left over after the play area claims its target share of the safe area's height: the top band just fits the egg counter and barn button, and the bottom band takes the rest (see ADR-0025). The ground shows through behind both bands.
 
 ## Feeding
 

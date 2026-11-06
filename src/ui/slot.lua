@@ -1,5 +1,5 @@
 local Constants = require("src.util.constants")
-local Color = require("src.util.color")
+local Frame = require("src.ui.frame")
 
 -- The fixed-size square behind an item's icon (CONTEXT.md's Slot), shared by
 -- the toolbar, the barn view, and the HUD's barn button.
@@ -12,16 +12,6 @@ local Slot = {}
 Slot.SIZE = 19 * Constants.PIXEL_SCALE
 local PADDING = 2 * Constants.PIXEL_SCALE
 
--- Same visual language as tooltip.lua's panel (fill/stroke/corner radius).
--- Every colour is from the palette (assets/colorway.png).
-local FILL_HEX = "f2f0e5"
-local STROKE_HEX = "3a3858"
-local SELECTED_STROKE_HEX = "4b80ca"
-local CORNER_RADIUS = 3 * Constants.PIXEL_SCALE
--- Tighter corners for the top band's buttons (the barn button, the barn view's close button).
-Slot.BUTTON_CORNER_RADIUS = 2 * Constants.PIXEL_SCALE
-local STROKE_WIDTH = 1 * Constants.PIXEL_SCALE
-local SELECTED_STROKE_WIDTH = 2 * Constants.PIXEL_SCALE
 local FLASH_TIME = 600 -- ms
 
 -- Fits an item's icon into a square box of availableSize at a whole number
@@ -46,33 +36,32 @@ function Slot.newIcon(parent, item, x, y, size)
 	return icon
 end
 
--- The barn button's 16x16 icon, filling about this share of the button
--- (snapped down to whole screen pixels per art pixel, ADR-0020).
-local BARN_ICON = { icon = "assets/objects/barn_icon.png", iconWidth = 16, iconHeight = 16 }
-local BARN_ICON_SHARE = 0.8
-
-function Slot.drawBarnIcon(group, size)
-	size = size or Slot.SIZE
-	local width, height = Slot.fitIcon(BARN_ICON, size * BARN_ICON_SHARE)
-	local icon = display.newImageRect(group, BARN_ICON.icon, width, height)
-	icon.x, icon.y = size / 2, size / 2
+-- An art-pixel icon drawn at a slot's own pixel scale, top-left offsetPixels
+-- in, so its pixels line up with the frame's (the HUD's barn and close icons).
+function Slot.drawPixelIcon(group, path, iconPixels, offsetPixels, pixel)
+	local icon = display.newImageRect(group, path, iconPixels * pixel, iconPixels * pixel)
+	icon.anchorX, icon.anchorY = 0, 0
+	icon.x, icon.y = offsetPixels * pixel, offsetPixels * pixel
 	return icon
 end
 
 -- A slot group with its top-left at (x, y), size defaulting to Slot.SIZE
--- and cornerRadius to a slot's.
--- item (optional) is a catalog descriptor whose icon is drawn inside, kept
--- as .icon. Its .background takes touch/tap listeners; setSelected(bool)
--- toggles the highlight and flash() pulses it once.
-function Slot.new(parent, x, y, item, size, cornerRadius)
-	size = size or Slot.SIZE
+-- (snapped to whole art px). item (optional) is a catalog descriptor whose
+-- icon is drawn inside, kept as .icon. Its .background takes touch/tap
+-- listeners; setSelected(bool) toggles the highlight, flash() pulses it once.
+-- pixel (optional) is the art px size, world-sized by default.
+function Slot.new(parent, x, y, item, size, pixel)
+	size = Frame.snap(size or Slot.SIZE, pixel)
 	local group = display.newGroup()
 	parent:insert(group)
 	group.x, group.y = x, y
 
-	local background = display.newRoundedRect(group, size / 2, size / 2, size, size, cornerRadius or CORNER_RADIUS)
-	background:setFillColor(Color.hexToRGB(FILL_HEX))
+	local background = display.newGroup()
+	group:insert(background)
+	Frame.new(background, 0, 0, size, size, "frame", pixel)
+	local highlight = Frame.new(background, 0, 0, size, size, "selected", pixel)
 	group.background = background
+	group.size = size
 
 	if item then
 		group.icon = Slot.newIcon(group, item, size / 2, size / 2, size)
@@ -81,9 +70,7 @@ function Slot.new(parent, x, y, item, size, cornerRadius)
 	local selected = false
 	local flashing = false
 	local function refresh()
-		local lit = selected or flashing
-		background.strokeWidth = lit and SELECTED_STROKE_WIDTH or STROKE_WIDTH
-		background:setStrokeColor(Color.hexToRGB(lit and SELECTED_STROKE_HEX or STROKE_HEX))
+		highlight.isVisible = selected or flashing
 	end
 
 	function group.setSelected(isSelected)

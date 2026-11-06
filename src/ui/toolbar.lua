@@ -13,7 +13,8 @@ local Color = require("src.util.color")
 local Toolbar = {}
 
 local SLOT_MARGIN = 4 * Constants.PIXEL_SCALE
-local SLOT_GAP = 3 * Constants.PIXEL_SCALE
+local SLOT_GAP = 2 * Constants.PIXEL_SCALE
+local SLOT_BOTTOM_MARGIN = 2 * Constants.PIXEL_SCALE -- slots sit at the band's bottom
 
 -- Content points (config.lua's 384-wide content ~ device points). A touch
 -- moving further than this scrolls the row and never selects.
@@ -111,7 +112,7 @@ function Toolbar.create()
 
 		for index = 1, Inventory.TOOLBAR_SLOTS do
 			local itemType = Inventory.get("toolbar", index)
-			local slot = Slot.new(strip, slotX(index), centerY - Slot.SIZE / 2, itemsByType[itemType])
+			local slot = Slot.new(strip, slotX(index), band.maxY - SLOT_BOTTOM_MARGIN - Slot.SIZE, itemsByType[itemType])
 			slots[index] = slot
 			-- An empty slot deselects, the same as tapping the selected one.
 			addTouch(slot.background, function()
