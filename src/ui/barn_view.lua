@@ -5,6 +5,7 @@ local Catalog = require("src.ui.catalog")
 local Inventory = require("src.systems.inventory")
 local Selection = require("src.ui.selection")
 local Slot = require("src.ui.slot")
+local DragLift = require("src.util.drag_lift")
 local Frame = require("src.ui.frame")
 local Layout = require("src.ui.layout")
 
@@ -111,12 +112,12 @@ local function cellAt(x, y)
 	return nil
 end
 
--- Long press lifts the item into a ghost under the finger; the slot it
--- would drop into is highlighted; release swaps, or snaps back off-grid.
+-- Long press lifts the item into a ghost above the finger; the slot under the
+-- ghost is highlighted; release swaps, or snaps back off-grid.
 local function addDrag(cell)
 	local background = cell.slot.background
 	local item = itemsByType[Inventory.get(cell.area, cell.index)]
-	local longPressHandle, startX, startY, ghost, hoverCell
+	local longPressHandle, startX, startY, ghost, hoverCell, lift
 
 	local function setHover(target)
 		if hoverCell then
@@ -139,14 +140,18 @@ local function addDrag(cell)
 					return
 				end
 				cell.slot.icon.isVisible = false
-				ghost = Slot.newIcon(current.root, item, startX, startY, cell.size)
+				local centerX, centerY = cell.x + cell.size / 2, cell.y + cell.size / 2
+				ghost = Slot.newIcon(current.root, item, centerX, centerY, cell.size)
 				setHover(cell)
+				lift = DragLift.begin(centerX, centerY, startX, startY, ghost.height / 2, function(x, y)
+					ghost.x, ghost.y = x, y
+					setHover(cellAt(x, y))
+				end)
 			end)
 		elseif background.isFocus then
 			if event.phase == "moved" then
 				if ghost then
-					ghost.x, ghost.y = event.x, event.y
-					setHover(cellAt(event.x, event.y))
+					DragLift.move(lift, event.x, event.y)
 				elseif longPressHandle then
 					local dx, dy = event.x - startX, event.y - startY
 					if dx * dx + dy * dy > TOUCH_SLOP * TOUCH_SLOP then
@@ -164,6 +169,8 @@ local function addDrag(cell)
 						showName(cell)
 					end
 				elseif ghost then
+					DragLift.finish(lift)
+					lift = nil
 					local target = event.phase == "ended" and hoverCell or nil
 					setHover(nil)
 					ghost:removeSelf()

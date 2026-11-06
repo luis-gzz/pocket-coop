@@ -15,10 +15,15 @@ function Font.inkHeight(text, fontSize)
 	return text.height - fontSize * (Constants.FONT_CAP_TOP + Constants.FONT_DESCENT)
 end
 
+-- iOS devices lay the font out higher in its box than the Simulator the
+-- metrics above were tuned in; a share of font size to push text back down.
+local DEVICE_SHIFT = (system.getInfo("platform") == "ios" and system.getInfo("environment") == "device")
+	and 0.05 or 0
+
 -- Top-anchors text so its capitals' top edge lands on y.
 function Font.placeCapsAt(text, y, fontSize)
 	text.anchorY = 0
-	text.y = y - fontSize * Constants.FONT_CAP_TOP
+	text.y = y - fontSize * (Constants.FONT_CAP_TOP - DEVICE_SHIFT)
 end
 
 -- Top-anchors text so its capitals are vertically centered on centerY.

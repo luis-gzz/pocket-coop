@@ -5,6 +5,7 @@ local Wiggle = require("src.util.wiggle")
 local Footprints = require("src.systems.footprints")
 local Selection = require("src.ui.selection")
 local DropZone = require("src.ui.drop_zone")
+local DragLift = require("src.util.drag_lift")
 
 -- The view + drag side of a hen bed (CONTEXT.md). Garden owns the placed
 -- beds themselves (the { x, y, eggs } records) and their placement rules;
@@ -78,7 +79,7 @@ function Bed.new(record, onMoved, resolvePlacement, onReturn)
 	local isDragging = false
 	local longPressHandle = nil
 	local originalX, originalY
-	local dragOffsetX, dragOffsetY
+	local lift = nil
 	local wiggleHandle = nil
 
 	local function beginDrag(startX, startY)
@@ -86,10 +87,12 @@ function Bed.new(record, onMoved, resolvePlacement, onReturn)
 		isDragging = true
 		record.dragging = true
 		originalX, originalY = record.x, record.y
-		dragOffsetX = group.x - startX
-		dragOffsetY = group.y - startY
 		-- Lifted above the UI while dragged, so it shows over the toolbar.
 		display.getCurrentStage():insert(group)
+		lift = DragLift.begin(group.x, group.y, startX, startY, Bed.HEIGHT / 2, function(x, y)
+			group.x, group.y = x, y
+			DropZone.setHover(DropZone.contains(x, y + Bed.HEIGHT / 2))
+		end)
 		wiggleHandle = Wiggle.start(group, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
 			return isDragging
 		end)
@@ -111,9 +114,7 @@ function Bed.new(record, onMoved, resolvePlacement, onReturn)
 		elseif nest.isFocus then
 			if event.phase == "moved" then
 				if isDragging then
-					group.x = event.x + dragOffsetX
-					group.y = event.y + dragOffsetY
-					DropZone.setHover(DropZone.contains(event.x, event.y))
+					DragLift.move(lift, event.x, event.y)
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(nest, nil)
@@ -129,9 +130,11 @@ function Bed.new(record, onMoved, resolvePlacement, onReturn)
 					isDragging = false
 					Wiggle.stop(wiggleHandle)
 					wiggleHandle = nil
+					DragLift.finish(lift)
+					lift = nil
 					DropZone.setHover(false)
 					-- Dropped on the toolbar: off the map and back into the inventory.
-					if event.phase == "ended" and DropZone.contains(event.x, event.y) then
+					if event.phase == "ended" and DropZone.contains(group.x, group.y + Bed.HEIGHT / 2) then
 						onReturn()
 						return true
 					end
