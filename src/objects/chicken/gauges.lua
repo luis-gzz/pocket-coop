@@ -9,10 +9,12 @@ Gauges.__index = Gauges
 -- distinct.
 local DROPPING_JITTER_RADIUS = 10 -- world points
 
--- Happiness buff: a flat, temporary bonus; a repeat grant restarts the
--- duration rather than stacking. Granted by any treat.
+-- Happiness buffs: flat, temporary bonuses; a repeat grant restarts the
+-- duration, and only the larger active one applies. Treat, then pet.
 Gauges.HAPPINESS_BUFF_AMOUNT = 25
 local HAPPINESS_BUFF_DURATION = 60 * 60 -- seconds
+Gauges.PET_BUFF_AMOUNT = 10
+local PET_BUFF_DURATION = 30 * 60 -- seconds
 
 -- Happiness: weighted average of the gauges where the worse ones pull
 -- harder (lower K = harsher penalty for a lopsided set).
@@ -40,7 +42,7 @@ end
 
 -- Happiness as a pure function, shared with offline catch-up. Satiety and
 -- hydration at or above their knees count as full.
-function Gauges.happinessFor(satiety, cleanliness, hydration, buffActive)
+function Gauges.happinessFor(satiety, cleanliness, hydration, bonus)
 	local values = {
 		clamp100(satiety * 100 / Tuning.HAPPINESS_SATIETY_KNEE),
 		cleanliness,
@@ -53,11 +55,18 @@ function Gauges.happinessFor(satiety, cleanliness, hydration, buffActive)
 		totalWeight = totalWeight + weight
 	end
 	local base = weighted / totalWeight
-	-- Dehydrated: scaled toward 0 before the buff, so a treat still shows (ADR-0019).
-	if hydration < Tuning.DEHYDRATED_BELOW then
-		base = base * math.max(0, hydration) / Tuning.DEHYDRATED_BELOW
+	-- Starving or dehydrated: scaled toward 0 by the worse of the two,
+	-- before the buff, so a treat still shows (ADR-0019, ADR-0026).
+	local scale = math.min(1, satiety / Tuning.LAY_SATIETY_GATE, hydration / Tuning.DEHYDRATED_BELOW)
+	return clamp100(base * math.max(0, scale) + (bonus or 0))
+end
+
+-- The bonus from whichever happiness buffs are still running at `now`.
+function Gauges.buffBonus(now, treatExpiresAt, petExpiresAt)
+	if now < treatExpiresAt then
+		return Gauges.HAPPINESS_BUFF_AMOUNT
 	end
-	return clamp100(base + (buffActive and Gauges.HAPPINESS_BUFF_AMOUNT or 0))
+	return (now < petExpiresAt) and Gauges.PET_BUFF_AMOUNT or 0
 end
 
 -- Eggs per hour at happiness h: none below the gate, ramping from
@@ -71,6 +80,15 @@ function Gauges.layRatePerHour(happiness)
 	end
 	local t = (happiness - Tuning.LAY_HAPPINESS_GATE) / (Tuning.LAY_FULL_RATE_HAPPINESS - Tuning.LAY_HAPPINESS_GATE)
 	return Tuning.LAY_BASE_PER_HOUR * (Tuning.LAY_MIN_RATE_FACTOR + (1 - Tuning.LAY_MIN_RATE_FACTOR) * t)
+end
+
+-- Eggs per hour, shared with offline catch-up: none while a lay gate fails
+-- (ADR-0026), else what happiness allows.
+function Gauges.layRate(satiety, cleanliness, hydration, bonus)
+	if satiety < Tuning.LAY_SATIETY_GATE or hydration < Tuning.DEHYDRATED_BELOW then
+		return 0
+	end
+	return Gauges.layRatePerHour(Gauges.happinessFor(satiety, cleanliness, hydration, bonus))
 end
 
 -- "sad" while she can't lay, "meh" at a reduced lay rate, "happy" at the full rate.
@@ -92,17 +110,13 @@ function Gauges.new(saved)
 	self.cleanliness = saved.cleanliness or 100
 	self.hydration = saved.hydration or 100
 	self.happinessBuffExpiresAt = saved.happinessBuffExpiresAt or 0
+	self.petBuffExpiresAt = saved.petBuffExpiresAt or 0
 	self.satisfiedUntil = saved.satisfiedUntil or 0
 
-	-- Hunger cycle (ADR-0015): nil while not hungry, else "food" (eating in
-	-- bouts until 100) or "forage" (eating until forageStop).
-	self.hungerMode = saved.hungerMode
-	self.foodTrigger = saved.foodTrigger
-	self.forageTrigger = saved.forageTrigger
-	self.forageStop = saved.forageStop
-	if not (self.foodTrigger and self.forageTrigger and self.forageStop) then
-		self:resampleTriggers()
-	end
+	-- Hunger (ADR-0015): open from crossing foodTrigger (with food around)
+	-- until 100. hungerMode is the pre-ADR-0026 save field.
+	self.hungry = saved.hungry or saved.hungerMode == "food"
+	self.foodTrigger = saved.foodTrigger or Tuning.randomIn(Tuning.FOOD_TRIGGER)
 
 	-- Thirst: open from crossing thirstTrigger (with water around) until 100.
 	self.thirsty = saved.thirsty or false
@@ -126,17 +140,9 @@ function Gauges.new(saved)
 	return self
 end
 
--- Samples the satiety levels at which the next hunger cycle begins (one per
--- mode) and where a forage cycle ends.
-function Gauges:resampleTriggers()
-	self.foodTrigger = Tuning.randomIn(Tuning.FOOD_TRIGGER)
-	self.forageTrigger = Tuning.randomIn(Tuning.FORAGE_TRIGGER)
-	self.forageStop = Tuning.randomIn(Tuning.FORAGE_STOP)
-end
-
 local function endHungerCycle(self)
-	self.hungerMode = nil
-	self:resampleTriggers()
+	self.hungry = false
+	self.foodTrigger = Tuning.randomIn(Tuning.FOOD_TRIGGER)
 end
 
 -- Clears any in-progress hunger cycle and bout, e.g. after offline catch-up
@@ -172,24 +178,15 @@ function Gauges:stopDrinking()
 end
 
 function Gauges:isHungry()
-	return self.hungerMode ~= nil
+	return self.hungry
 end
 
-function Gauges:getHungerMode()
-	return self.hungerMode
-end
-
--- Starts one bout: half the gap to 100 from a source (all of it once small),
--- or up to forageStop when foraging.
-function Gauges:startBout(fromSource)
+-- Starts one bout: half the gap to 100 (all of it once small).
+function Gauges:startBout()
 	self.isEating = true
 	self.eatingPaused = false
-	if fromSource then
-		local gap = Tuning.FOOD_CEILING - self.satiety
-		self.boutTarget = (gap <= Tuning.BOUT_FINISH_GAP) and Tuning.FOOD_CEILING or (self.satiety + gap / 2)
-	else
-		self.boutTarget = math.min(self.forageStop, Tuning.FORAGE_CEILING)
-	end
+	local gap = Tuning.FOOD_CEILING - self.satiety
+	self.boutTarget = (gap <= Tuning.BOUT_FINISH_GAP) and Tuning.FOOD_CEILING or (self.satiety + gap / 2)
 end
 
 function Gauges:stopEating()
@@ -201,22 +198,6 @@ end
 -- Holds a bout mid-way (hopping between seeds): satiety neither rises nor falls.
 function Gauges:setEatingPaused(value)
 	self.eatingPaused = value
-end
-
--- Mode follows whether food exists right now; placing or running out of food
--- switches it mid-cycle.
-local function updateHungerMode(self, hasSource)
-	local mode = hasSource and "food" or "forage"
-	if self.hungerMode == mode then
-		return
-	end
-	if mode == "food" then
-		if self.hungerMode or self.satiety < self.foodTrigger then
-			self.hungerMode = "food"
-		end
-	else
-		self.hungerMode = (self.satiety < self.forageTrigger) and "forage" or nil
-	end
 end
 
 local function randomPointNear(x, y, radius)
@@ -255,10 +236,13 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater
 		self.satisfiedUntil = self.now + Tuning.SATISFIED_DURATION
 	end
 
-	updateHungerMode(self, hasSource)
-	if self.hungerMode == "food" and self.satiety >= Tuning.FOOD_CEILING then
-		endHungerCycle(self)
-	elseif self.hungerMode == "forage" and self.satiety >= self.forageStop then
+	-- Like thirst, hunger follows whether food exists right now.
+	if not hasSource then
+		self.hungry = false
+	elseif self.satiety < self.foodTrigger then
+		self.hungry = true
+	end
+	if self.hungry and self.satiety >= Tuning.FOOD_CEILING then
 		endHungerCycle(self)
 	end
 
@@ -270,7 +254,7 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater
 	end
 	local drank = math.max(0, self.hydration - hydrationBefore)
 
-	-- Like hunger's mode, thirst follows whether water exists right now.
+	-- Thirst follows whether water exists right now.
 	if not hasWater then
 		self.thirsty = false
 	elseif self.hydration < self.thirstTrigger then
@@ -291,9 +275,11 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater
 		table.insert(spawned, { x = x, y = y, createdAt = self.now })
 	end
 
-	self.layProgress = self.layProgress + Gauges.layRatePerHour(self:getHappiness()) / Tuning.HOUR * dt
+	-- A gated hen's progress holds, and banked progress can't fire (ADR-0026).
+	local layRate = self:getLayRate()
+	self.layProgress = self.layProgress + layRate / Tuning.HOUR * dt
 	local laid = false
-	if not self.pendingLay and not isHeld
+	if not self.pendingLay and not isHeld and layRate > 0
 		and self.layProgress >= self.layThreshold
 		and self.now - self.lastLayAt >= Tuning.LAY_MIN_GAP then
 		self.pendingLay = true
@@ -342,12 +328,21 @@ function Gauges:applyHappinessBuff()
 	self.happinessBuffExpiresAt = self.now + HAPPINESS_BUFF_DURATION
 end
 
-function Gauges:isHappinessBuffActive()
-	return self.now < self.happinessBuffExpiresAt
+-- Grants the pet buff: 30 minutes from now, never added to what's left.
+function Gauges:applyPetBuff()
+	self.petBuffExpiresAt = self.now + PET_BUFF_DURATION
+end
+
+function Gauges:getBuffBonus()
+	return Gauges.buffBonus(self.now, self.happinessBuffExpiresAt, self.petBuffExpiresAt)
 end
 
 function Gauges:getHappiness()
-	return Gauges.happinessFor(self.satiety, self.cleanliness, self.hydration, self:isHappinessBuffActive())
+	return Gauges.happinessFor(self.satiety, self.cleanliness, self.hydration, self:getBuffBonus())
+end
+
+function Gauges:getLayRate()
+	return Gauges.layRate(self.satiety, self.cleanliness, self.hydration, self:getBuffBonus())
 end
 
 function Gauges:getSaveData()
@@ -359,11 +354,10 @@ function Gauges:getSaveData()
 		thirsty = self.thirsty,
 		thirstTrigger = self.thirstTrigger,
 		happinessBuffExpiresAt = self.happinessBuffExpiresAt,
+		petBuffExpiresAt = self.petBuffExpiresAt,
 		satisfiedUntil = self.satisfiedUntil,
-		hungerMode = self.hungerMode,
+		hungry = self.hungry,
 		foodTrigger = self.foodTrigger,
-		forageTrigger = self.forageTrigger,
-		forageStop = self.forageStop,
 		poopProgress = self.poopProgress,
 		poopThreshold = self.poopThreshold,
 		layProgress = self.layProgress,

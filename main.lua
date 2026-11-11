@@ -18,6 +18,7 @@ local Garden = require("src.systems.garden")
 local Hud = require("src.ui.hud")
 local Toolbar = require("src.ui.toolbar")
 local Selection = require("src.ui.selection")
+local Hearts = require("src.objects.hearts")
 local Save = require("src.systems.save")
 local DebugOverlay = require("src.ui.debug_overlay")
 local WelcomeCard = require("src.ui.welcome_card")
@@ -48,6 +49,8 @@ Selection.createCatcher(function(itemType, x, y)
 		Selection.clear()
 	end
 end)
+
+Hearts.createLayer()
 
 Hud.create()
 Toolbar.create()

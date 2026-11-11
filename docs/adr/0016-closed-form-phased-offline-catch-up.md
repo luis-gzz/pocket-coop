@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0027
 ---
 
 # Offline catch-up is closed-form and phased, not a replay of the update loop

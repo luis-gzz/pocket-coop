@@ -64,8 +64,8 @@ function Feed.deplete(item, satietyDelivered)
 	return true
 end
 
--- Whether a food source exists anywhere - treats live in Treats, so an
--- unreachable mealworm can never suppress foraging.
+-- Whether a food source exists anywhere - treats live in Treats, so a
+-- mealworm never opens hunger.
 function Feed.hasFoodSource()
 	return #items > 0
 end

@@ -388,7 +388,7 @@ local function onFrame(event)
 	stepChickens(Clock.getDt())
 end
 
--- Full offline catch-up (ADR-0016): food + satiety, water + hydration,
+-- Full offline catch-up (ADR-0027): food + satiety, water + hydration,
 -- droppings, eggs, then cleanliness, then save. Treats are left out for the live chicken.
 local function catchUp(elapsedSeconds)
 	elapsedSeconds = math.min(elapsedSeconds, Tuning.OFFLINE_CAP)
@@ -400,22 +400,33 @@ local function catchUp(elapsedSeconds)
 		chicken:teleportTo(Chicken.randomSpot())
 	end
 
-	local input = { units = Feed.getTotalUnits(), water = Bowls.getTotalWater(), dirt = Garden.getDirt(), chickens = {} }
+	local openSlots = 0
+	for _, bed in ipairs(beds) do
+		openSlots = openSlots + Bed.SLOT_COUNT - countBedEggs(bed)
+	end
+	local input = {
+		units = Feed.getTotalUnits(),
+		water = Bowls.getTotalWater(),
+		dirt = Garden.getDirt(),
+		openSlots = openSlots,
+		chickens = {},
+	}
 	for i, chicken in ipairs(chickens) do
 		local gauges = chicken.gauges
 		input.chickens[i] = {
+			now = gauges.now,
 			satiety = gauges.satiety,
 			hydration = gauges.hydration,
+			cleanliness = gauges.cleanliness,
+			satisfiedUntil = gauges.satisfiedUntil,
+			happinessBuffExpiresAt = gauges.happinessBuffExpiresAt,
+			petBuffExpiresAt = gauges.petBuffExpiresAt,
+			lastLayAt = gauges.lastLayAt,
 			poopProgress = gauges.poopProgress,
 			poopThreshold = gauges.poopThreshold,
 			layProgress = gauges.layProgress,
 			layThreshold = gauges.layThreshold,
 		}
-	end
-
-	local cleanlinessAtClose = {}
-	for i, chicken in ipairs(chickens) do
-		cleanlinessAtClose[i] = chicken.gauges.cleanliness
 	end
 
 	local result = Offline.compute(input, elapsedSeconds)
@@ -427,14 +438,16 @@ local function catchUp(elapsedSeconds)
 		local outcome = result.chickens[i]
 		local startNow = gauges.now
 
-		-- Timestamp buffs (happiness, satisfied) and the lay gap simply pass.
+		-- Timestamp buffs (happiness, pet, satisfied) simply pass.
 		gauges.now = gauges.now + elapsedSeconds
 		gauges.satiety = outcome.satiety
 		gauges.hydration = outcome.hydration
+		gauges.cleanliness = outcome.cleanliness
 		gauges.poopProgress = outcome.poopProgress
 		gauges.poopThreshold = outcome.poopThreshold
 		gauges.layProgress = outcome.layProgress
 		gauges.layThreshold = outcome.layThreshold
+		gauges.lastLayAt = outcome.lastLayAt
 
 		for n = 1, outcome.droppings do
 			local x, y = randomPlayAreaPoint(Dropping.WIDTH, Dropping.HEIGHT)
@@ -451,16 +464,6 @@ local function catchUp(elapsedSeconds)
 			end
 			placeEgg(target, x, y)
 		end
-		if outcome.eggs > 0 then
-			gauges.lastLayAt = gauges.now - elapsedSeconds / (outcome.eggs + 1)
-		end
-	end
-
-	-- Same easing as online over the whole gap, toward the target at return
-	-- (slightly pessimistic if droppings piled up mid-absence).
-	local target = Gauges.cleanlinessTarget(Garden.getDirt())
-	for i, chicken in ipairs(chickens) do
-		chicken.gauges.cleanliness = Gauges.easeCleanliness(cleanlinessAtClose[i], target, elapsedSeconds)
 	end
 
 	Garden.save()

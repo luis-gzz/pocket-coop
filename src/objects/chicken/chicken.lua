@@ -16,6 +16,7 @@ local Wiggle = require("src.util.wiggle")
 local Shadow = require("src.objects.shadow")
 local WanderRoute = require("src.util.wander_route")
 local Footprints = require("src.systems.footprints")
+local Hearts = require("src.objects.hearts")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -63,6 +64,16 @@ local PECK_PICK_ATTEMPTS = 5
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
+
+-- Pet (ADR-0028): a touch that travels this far before the long press fires
+-- strokes her instead. Progress is seconds of stroking over the padded hit zone.
+local PET_START_TRAVEL = SPRITE_SIZE * DISPLAY_SCALE / 4
+local PET_PAD = 6 * DISPLAY_SCALE
+local PET_GOAL = 2 -- seconds of stroking for the buff
+local PET_MOVE_CAP = 0.1 -- most one move event can add, so pauses don't count
+local PET_FIRST_HEART = 0.3
+local PET_HEART_EVERY = 0.5
+local PET_BURST = 4
 
 -- Drink: the eat sheet's head-down dip once, sips between frames 5 and 6,
 -- then raises its head (5 back to 1) once it's done.
@@ -270,22 +281,16 @@ local function walkToBath(chicken, target, onArrive)
 	walkTo(chicken, destX, destY, nil, onArrive)
 end
 
--- Where a hungry chicken goes next (ADR-0015): "approach" (food cycle),
--- "eat" (forage cycle), or nil if not hungry, on a bout break, or food vanished.
+-- "approach" to the nearest food source while hungry (ADR-0015), else nil:
+-- not hungry, on a bout break, or no food out.
 local function pickHungerState(chicken)
-	if chicken.onBoutBreak then
+	if chicken.onBoutBreak or not chicken.gauges:isHungry() then
 		return nil
 	end
-	local mode = chicken.gauges:getHungerMode()
-	if mode == "food" then
-		local target = Feed.findNearestSource(chicken.view.x, chicken.view.y)
-		if target then
-			chicken:setTarget(target)
-			return "approach"
-		end
-	elseif mode == "forage" then
-		chicken:setTarget(nil)
-		return "eat"
+	local target = Feed.findNearestSource(chicken.view.x, chicken.view.y)
+	if target then
+		chicken:setTarget(target)
+		return "approach"
 	end
 	return nil
 end
@@ -518,7 +523,15 @@ function Chicken.new(saved, layCallbacks)
 	return self
 end
 
+-- While she's petted the wanted animation is only noted; endPet shows it.
 function Chicken:setAnimation(name)
+	self.animationName = name
+	if not self.petted then
+		self:showAnimation(name)
+	end
+end
+
+function Chicken:showAnimation(name)
 	if self.activeSprite then
 		self.activeSprite.isVisible = false
 		self.activeSprite:pause()
@@ -538,6 +551,49 @@ function Chicken:setFacing(direction)
 		self.facing = direction
 		self.view.xScale = DISPLAY_SCALE * direction
 	end
+end
+
+-- Not on or hopping to a bed, using a treat, or held (ADR-0028).
+function Chicken:canBePetted()
+	local state = self.machine.name
+	return not self.petted and not self.hop and not self.mountedBed
+		and state ~= "held" and state ~= "eatTreat" and state ~= "bathe"
+end
+
+-- Pauses whatever she's doing (update freezes it) and sits her down.
+function Chicken:beginPet()
+	Selection.clear()
+	self.petted = true
+	self.petEatingPaused = self.gauges.eatingPaused
+	self.gauges:setEatingPaused(true)
+	self.petWasDrinking = self.gauges.isDrinking
+	self.gauges:stopDrinking()
+	self:showAnimation("sit")
+end
+
+-- Resumes what the pet paused, in whatever state she's in now.
+function Chicken:endPet()
+	if not self.petted then
+		return
+	end
+	self.petted = false
+	if self.gauges.isEating then
+		self.gauges:setEatingPaused(self.petEatingPaused)
+	end
+	self:showAnimation(self.animationName)
+	if self.machine.name == "drink" then
+		if self.drinkFinishing then
+			self.activeSprite:setSequence("rise")
+			self.activeSprite:play()
+		elseif self.petWasDrinking then
+			self.gauges:startDrinking()
+		end
+	end
+end
+
+-- Hearts rise from just above her head.
+function Chicken:heartSpot()
+	return self.view.x, self.view.y - GROUND_OFFSET
 end
 
 -- Purely visual - a selected chicken keeps doing whatever it was doing.
@@ -598,6 +654,7 @@ end
 -- Drops whatever the chicken was doing before offline catch-up (ADR-0016).
 -- Lay progress is kept, so a pending egg is counted by catch-up instead.
 function Chicken:resetForCatchUp()
+	self:endPet()
 	self:setTarget(nil)
 	self:cancelNesting()
 	self:cancelBoutBreak()
@@ -816,6 +873,14 @@ end
 -- lay happened this call, so Garden can create their views / hatch the egg -
 -- both are Garden-owned concerns now, not this chicken's.
 function Chicken:update(dt, dirt, hasSource, hasWater)
+	-- Petted: she stays put and nothing new starts; gauges run as if held,
+	-- so a lay that comes due waits for release (ADR-0028).
+	if self.petted then
+		self.hitArea:toFront()
+		local spawned = self.gauges:update(dt, dirt, self.view.x, self.view.y, true, hasSource, hasWater)
+		return spawned, false
+	end
+
 	if self.machine.name == "wander" then
 		stepWander(self, Clock.getRawDt())
 	elseif self.walk then
@@ -847,6 +912,9 @@ function Chicken:update(dt, dirt, hasSource, hasWater)
 
 	if self.machine.name == "eat" and boutDone then
 		finishBout(self)
+	elseif self.machine.name == "eat" and not self.target then
+		-- Eating always has a claimed source; without one she re-decides.
+		self.machine:changeState(decideNextState(self))
 	end
 
 	-- Drinks until full or the bowl runs dry, then raises its head before
@@ -885,15 +953,11 @@ function Chicken:update(dt, dirt, hasSource, hasWater)
 	end
 
 	-- Hunger and thirst are acted on here, not at the next re-decide, so high
-	-- time scale can't overshoot them. Interrupts idle/wander, or foraging
-	-- once food appears or thirst opens.
+	-- time scale can't overshoot them. Interrupts idle/wander only.
 	state = self.machine.name
-	local isForaging = state == "eat" and not self.target
-	local interruptible = state == "idle" or state == "wander"
-		or (isForaging and (self.gauges:getHungerMode() == "food" or self.gauges:isThirsty()))
-	if interruptible then
+	if state == "idle" or state == "wander" then
 		local needState = pickNeedState(self)
-		if needState and not (isForaging and needState == "eat") then
+		if needState then
 			self.machine:changeState(needState)
 		end
 	end
@@ -925,8 +989,8 @@ function Chicken:getSaveData()
 	return data
 end
 
--- Distinguishes a short tap (opens the tooltip) from a long press (picks
--- the chicken up) by hold duration.
+-- Distinguishes a short tap (opens the tooltip), a still long press (picks
+-- the chicken up) and a stroke (pets her, ADR-0028).
 function Chicken:setupTouch()
 	local hitArea = self.hitArea
 
@@ -941,9 +1005,10 @@ function Chicken:setupTouch()
 		end)
 	end
 
-	local function isOverChicken(x, y)
+	local function isOverChicken(x, y, pad)
 		local bounds = hitArea.contentBounds
-		return x >= bounds.xMin and x <= bounds.xMax and y >= bounds.yMin and y <= bounds.yMax
+		pad = pad or 0
+		return x >= bounds.xMin - pad and x <= bounds.xMax + pad and y >= bounds.yMin - pad and y <= bounds.yMax + pad
 	end
 
 	-- Drops a touch that left the chicken before pickup: no pickup, no tooltip.
@@ -958,6 +1023,27 @@ function Chicken:setupTouch()
 	end
 
 	local lastX, lastY
+	local startX, startY, lastMoveTime
+	local petTime, nextHeartAt, petDone
+
+	-- Counts a stroke's move toward the pet: hearts along the way, then one
+	-- burst and the buff per touch.
+	local function strokePet(event)
+		if not isOverChicken(event.x, event.y, PET_PAD) then
+			return
+		end
+		petTime = petTime + math.min((event.time - lastMoveTime) / 1000, PET_MOVE_CAP)
+		local x, y = self:heartSpot()
+		if petTime >= PET_GOAL and not petDone then
+			petDone = true
+			self.gauges:applyPetBuff()
+			Hearts.burst(x, y, PET_BURST)
+		end
+		if petTime >= nextHeartAt then
+			nextHeartAt = nextHeartAt + PET_HEART_EVERY
+			Hearts.spawn(x, y)
+		end
+	end
 
 	local function onTouch(event)
 		if event.phase == "began" then
@@ -965,6 +1051,8 @@ function Chicken:setupTouch()
 			hitArea.isFocus = true
 			self.pendingTouch = true
 			lastX, lastY = event.x, event.y
+			startX, startY, lastMoveTime = event.x, event.y, event.time
+			petTime, nextHeartAt, petDone = 0, PET_FIRST_HEART, false
 			self.longPressHandle = timer.performWithDelay(LONG_PRESS_TIME, function()
 				self.longPressHandle = nil
 				if not self.pendingTouch then
@@ -983,14 +1071,27 @@ function Chicken:setupTouch()
 				lastX, lastY = event.x, event.y
 				if self.pendingTouch and not isOverChicken(event.x, event.y) then
 					cancelPendingTouch()
+				elseif self.pendingTouch and self:canBePetted()
+					and (event.x - startX) ^ 2 + (event.y - startY) ^ 2 > PET_START_TRAVEL ^ 2 then
+					-- A stroke, not a hold: no pickup, and no tooltip on release.
+					timer.cancel(self.longPressHandle)
+					self.longPressHandle = nil
+					self.pendingTouch = nil
+					self:beginPet()
+				elseif self.petted then
+					strokePet(event)
 				elseif self.machine.name == "held" then
 					DragLift.move(self.lift, event.x, event.y)
 				end
+				lastMoveTime = event.time
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(hitArea, nil)
 				hitArea.isFocus = false
 
-				if self.longPressHandle then
+				if self.petted then
+					self:endPet()
+					Tooltip.ignoreNextTap()
+				elseif self.longPressHandle then
 					timer.cancel(self.longPressHandle)
 					self.longPressHandle = nil
 					self.pendingTouch = nil
@@ -1188,12 +1289,12 @@ STATES = {
 		end,
 	},
 
-	-- One bout of eating, from a claimed source or foraging. Ends at the
-	-- bout's target (finishBout) or when preempted or the source runs out.
+	-- One bout of eating from a claimed source. Ends at the bout's target
+	-- (finishBout) or when preempted or the source runs out.
 	eat = {
 		enter = function(chicken)
 			chicken:setAnimation("eat")
-			chicken.gauges:startBout(chicken.target ~= nil)
+			chicken.gauges:startBout()
 		end,
 		exit = function(chicken)
 			chicken:stopWalk()

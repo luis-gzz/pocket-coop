@@ -1,204 +1,132 @@
 local Tuning = require("src.systems.tuning")
 local Gauges = require("src.objects.chicken.gauges")
 
--- Offline catch-up math (ADR-0016): closed-form phases, never stepping time.
--- Pure data in and out; garden.lua applies the result.
+-- Offline catch-up math (ADR-0027): the whole garden advanced in fixed
+-- steps. Pure data in and out; garden.lua applies the result.
 local Offline = {}
 
--- Spends whole jittered thresholds out of `progress`, like the online gauges.
--- Returns the count, leftover progress, and next threshold.
-local function spendProgress(progress, threshold)
-	local count = 0
-	while progress >= threshold do
-		progress = progress - threshold
-		threshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
-		count = count + 1
-	end
-	return count, progress, threshold
-end
-
--- Shares `pool` out thirstiest/hungriest first, raising each value up to
--- `plateau` at `perPoint` pool per gauge point. Returns the new values,
--- what's left, and whether it ran dry.
-local function refill(values, pool, plateau, perPoint)
-	local result, order = {}, {}
-	for i, value in ipairs(values) do
-		result[i] = value
+-- Shares `pool` out lowest gauge first, raising each chicken's `key` up to
+-- `plateau` at `perPoint` pool per gauge point. Returns what's left.
+local function refill(chickens, key, pool, plateau, perPoint)
+	local order = {}
+	for i = 1, #chickens do
 		order[i] = i
 	end
 	table.sort(order, function(a, b)
-		return result[a] < result[b]
+		return chickens[a][key] < chickens[b][key]
 	end)
-	local ranDry = false
 	for _, i in ipairs(order) do
-		local needed = math.max(0, plateau - result[i]) * perPoint
-		if pool >= needed then
-			pool = pool - needed
-			result[i] = math.max(result[i], plateau)
-		else
-			result[i] = result[i] + pool / perPoint
-			pool = 0
-			ranDry = true
-		end
+		local chicken = chickens[i]
+		local points = math.min(math.max(0, plateau - chicken[key]), pool / perPoint)
+		chicken[key] = chicken[key] + points
+		pool = pool - points * perPoint
 	end
-	return result, pool, ranDry
+	return pool
 end
 
--- Simpson's-rule average of f over [a, b] - happiness bends (knees, the
--- dehydration multiplier), so a straight midpoint undercounts.
-local function averageOver(f, a, b)
-	return (f(a) + 4 * f((a + b) / 2) + f(b)) / 6
+-- One step of a gauge that holds at `plateau` while the pool pays `upkeep`,
+-- then decays by `decay` (both for the whole step). Returns the value and
+-- what's left of the pool.
+local function holdOrDecay(value, pool, plateau, upkeep, decay)
+	local held = (upkeep > 0) and math.min(1, pool / upkeep) or 0
+	pool = pool - held * upkeep
+	if pool < 1e-9 then
+		pool = 0 -- so rounding can't leave a crumb
+	end
+	if held > 0 then
+		value = math.max(plateau, value - decay * held)
+	end
+	return math.max(0, value - decay * (1 - held)), pool
 end
 
--- input: { units, water, dirt, chickens = { {satiety, hydration, poop/lay
--- progress + thresholds} } }. Returns phase hours, unitsConsumed,
--- waterConsumed, per-chicken results.
+-- input: { units, water, dirt, openSlots, chickens = { { now, satiety,
+-- hydration, cleanliness, satisfiedUntil, happinessBuffExpiresAt,
+-- petBuffExpiresAt, lastLayAt, poop/lay progress + thresholds } } }.
+-- Returns hours, unitsConsumed, waterConsumed and per-chicken results.
 function Offline.compute(input, elapsedSeconds)
 	local seconds = math.max(0, math.min(elapsedSeconds, Tuning.OFFLINE_CAP))
-	local hours = seconds / Tuning.HOUR
-	local count = #input.chickens
-	local perUnit = Tuning.SATIETY_PER_UNIT
+	local units, water = input.units or 0, input.water or 0
+	local dirt = input.dirt or 0
+	local openSlots = input.openSlots or 0
 
-	-- 1. Refill: the hungriest chickens eat first, each up to the fed
-	-- plateau, out of the shared pool. Treated as happening at the start.
-	local satieties, hydrations = {}, {}
-	for i, chicken in ipairs(input.chickens) do
-		satieties[i] = chicken.satiety
-		hydrations[i] = chicken.hydration
-	end
-	local startSatiety, units, ranDry = refill(satieties, input.units, Tuning.FED_PLATEAU, 1 / perUnit)
-
-	-- 2. Fed: whatever's left keeps every chicken at the plateau.
-	local fedHours = 0
-	if not ranDry and count > 0 then
-		fedHours = math.min(hours, units / (Tuning.FED_UNITS_PER_CHICKEN_HOUR * count))
-	end
-	local unitsConsumed = (input.units - units) + fedHours * Tuning.FED_UNITS_PER_CHICKEN_HOUR * count
-	if ranDry or fedHours < hours then
-		unitsConsumed = input.units -- ran out: exact, so rounding can't leave a crumb
-	end
-
-	-- Water mirrors food: refill to the watered plateau, hold there while
-	-- bowls last, then drain toward 0 (water is measured in hydration).
-	local water = input.water or 0
-	local startHydration, waterLeft, waterRanDry = refill(hydrations, water, Tuning.WATERED_PLATEAU, 1)
-	local wateredHours = 0
-	if not waterRanDry and count > 0 then
-		wateredHours = math.min(hours, waterLeft / (Tuning.HYDRATION_DECAY_PER_HOUR * count))
-	end
-	local waterConsumed = (water - waterLeft) + wateredHours * Tuning.HYDRATION_DECAY_PER_HOUR * count
-	if waterRanDry or wateredHours < hours then
-		waterConsumed = water
-	end
-
-	-- 3. Starved: decay from each chicken's phase-start value, stopping at
-	-- the unfed floor (a chicken already below it forages back up to it).
-	local starvedHours = hours - fedHours
-
-	local targetAtClose = Gauges.cleanlinessTarget(input.dirt)
-	local results = {}
-	local totalDroppings = 0
-	for i, chicken in ipairs(input.chickens) do
-		local satiety = startSatiety[i]
-		if fedHours > 0 then
-			-- A chicken above the plateau just decays down onto it.
-			satiety = math.max(Tuning.FED_PLATEAU, satiety - Tuning.SATIETY_DECAY_PER_HOUR * fedHours)
+	local chickens = {}
+	for i, source in ipairs(input.chickens) do
+		local chicken = { droppings = 0, eggs = 0 }
+		for key, value in pairs(source) do
+			chicken[key] = value
 		end
-		local starvedStart = satiety
-		local function satietyAt(t)
-			if t <= fedHours then
-				return Tuning.FED_PLATEAU
+		chicken.now = chicken.now or 0
+		chicken.cleanliness = chicken.cleanliness or Gauges.cleanlinessTarget(dirt)
+		chicken.satisfiedUntil = chicken.satisfiedUntil or 0
+		chicken.happinessBuffExpiresAt = chicken.happinessBuffExpiresAt or 0
+		chicken.petBuffExpiresAt = chicken.petBuffExpiresAt or 0
+		chicken.lastLayAt = chicken.lastLayAt or -math.huge
+		chickens[i] = chicken
+	end
+
+	local remaining = seconds
+	while remaining > 0 do
+		local dt = math.min(Tuning.OFFLINE_STEP, remaining)
+		remaining = remaining - dt
+		local stepHours = dt / Tuning.HOUR
+
+		-- 1-2. Food and water: top up to the plateau, hold there while the
+		-- pool lasts, else decay toward 0.
+		units = refill(chickens, "satiety", units, Tuning.FED_PLATEAU, 1 / Tuning.SATIETY_PER_UNIT)
+		water = refill(chickens, "hydration", water, Tuning.WATERED_PLATEAU, 1)
+		for _, chicken in ipairs(chickens) do
+			local decay = Tuning.SATIETY_DECAY_PER_HOUR * stepHours
+			if chicken.now < chicken.satisfiedUntil then
+				decay = decay * Tuning.SATISFIED_DECAY_FACTOR
 			end
-			if starvedStart < Tuning.UNFED_FLOOR then
-				return Tuning.UNFED_FLOOR
-			end
-			return math.max(Tuning.UNFED_FLOOR, starvedStart - Tuning.SATIETY_DECAY_PER_HOUR * (t - fedHours))
+			chicken.satiety, units = holdOrDecay(
+				chicken.satiety, units, Tuning.FED_PLATEAU, Tuning.FED_UNITS_PER_CHICKEN_HOUR * stepHours, decay
+			)
+			local drying = Tuning.HYDRATION_DECAY_PER_HOUR * stepHours
+			chicken.hydration, water = holdOrDecay(chicken.hydration, water, Tuning.WATERED_PLATEAU, drying, drying)
 		end
-		satiety = (starvedHours > 0) and satietyAt(hours) or satiety
 
-		local hydration = startHydration[i]
-		if wateredHours > 0 then
-			hydration = math.max(Tuning.WATERED_PLATEAU, hydration - Tuning.HYDRATION_DECAY_PER_HOUR * wateredHours)
-		end
-		local dryStart = hydration
-		local function hydrationAt(t)
-			if t <= wateredHours then
-				return Tuning.WATERED_PLATEAU
-			end
-			return math.max(0, dryStart - Tuning.HYDRATION_DECAY_PER_HOUR * (t - wateredHours))
-		end
-		hydration = (hours > wateredHours) and hydrationAt(hours) or hydration
-
-		-- 4. Droppings: the flat rate, on top of carried-over progress.
-		local droppings, poopProgress, poopThreshold = spendProgress(
-			chicken.poopProgress + hours * Tuning.POOP_PER_HOUR, chicken.poopThreshold
-		)
-		totalDroppings = totalDroppings + droppings
-
-		results[i] = {
-			satiety = satiety,
-			hydration = hydration,
-			satietyAt = satietyAt,
-			hydrationAt = hydrationAt,
-			dryStart = dryStart,
-			starvedStart = starvedStart,
-			droppings = droppings,
-			poopProgress = poopProgress,
-			poopThreshold = poopThreshold,
-		}
-	end
-
-	-- 5. Eggs: lay rate averaged over segments split wherever food or water
-	-- runs out or hydration bends, against the absence's average cleanliness
-	-- (floor eggs suppressing later laying is ignored).
-	local targetAtReturn = Gauges.cleanlinessTarget(input.dirt + totalDroppings * Tuning.CLEAN_PENALTY_PER_DROPPING)
-	local cleanliness = (targetAtClose + targetAtReturn) / 2
-	local maxEggs = math.floor(hours * Tuning.HOUR / Tuning.LAY_MIN_GAP)
-
-	for i, chicken in ipairs(input.chickens) do
-		local result = results[i]
-		local function rateAt(t)
-			local happiness = Gauges.happinessFor(result.satietyAt(t), cleanliness, result.hydrationAt(t), false)
-			return Gauges.layRatePerHour(happiness)
-		end
-		local decay = Tuning.HYDRATION_DECAY_PER_HOUR
-		local breaks = {
-			0, fedHours, wateredHours,
-			fedHours + (result.starvedStart - Tuning.UNFED_FLOOR) / Tuning.SATIETY_DECAY_PER_HOUR,
-			wateredHours + (result.dryStart - Tuning.DEHYDRATED_BELOW) / decay,
-			wateredHours + result.dryStart / decay,
-			hours,
-		}
-		table.sort(breaks)
-		local progress = chicken.layProgress
-		local previous = 0
-		for _, t in ipairs(breaks) do
-			t = math.max(0, math.min(hours, t))
-			if t > previous then
-				progress = progress + (t - previous) * averageOver(rateAt, previous, t)
-				previous = t
+		-- 3. Droppings, onto the garden's running dirt.
+		for _, chicken in ipairs(chickens) do
+			chicken.poopProgress = chicken.poopProgress + Tuning.POOP_RATE * dt
+			while chicken.poopProgress >= chicken.poopThreshold do
+				chicken.poopProgress = chicken.poopProgress - chicken.poopThreshold
+				chicken.poopThreshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
+				chicken.droppings = chicken.droppings + 1
+				dirt = dirt + Tuning.CLEAN_PENALTY_PER_DROPPING
 			end
 		end
-		local eggs, layProgress, layThreshold = spendProgress(progress, chicken.layThreshold)
-		if eggs > maxEggs then
-			eggs = maxEggs
-			-- Capped by the minimum gap - don't bank a burst for the return.
-			layProgress = math.min(layProgress, layThreshold)
+
+		-- 4-5. Cleanliness, then laying at the step's values. An egg past
+		-- the open bed slots lands on the floor and adds its dirt.
+		local target = Gauges.cleanlinessTarget(dirt)
+		for _, chicken in ipairs(chickens) do
+			chicken.now = chicken.now + dt
+			chicken.cleanliness = Gauges.easeCleanliness(chicken.cleanliness, target, dt)
+
+			local bonus = Gauges.buffBonus(chicken.now - dt, chicken.happinessBuffExpiresAt, chicken.petBuffExpiresAt)
+			local rate = Gauges.layRate(chicken.satiety, chicken.cleanliness, chicken.hydration, bonus)
+			chicken.layProgress = chicken.layProgress + rate * stepHours
+			if rate > 0 and chicken.layProgress >= chicken.layThreshold
+				and chicken.now - chicken.lastLayAt >= Tuning.LAY_MIN_GAP then
+				chicken.layProgress = chicken.layProgress - chicken.layThreshold
+				chicken.layThreshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
+				chicken.lastLayAt = chicken.now
+				chicken.eggs = chicken.eggs + 1
+				if openSlots > 0 then
+					openSlots = openSlots - 1
+				else
+					dirt = dirt + Tuning.CLEAN_PENALTY_PER_FLOOR_EGG
+				end
+			end
 		end
-		result.eggs = eggs
-		result.layProgress = layProgress
-		result.layThreshold = layThreshold
-		result.satietyAt, result.hydrationAt, result.dryStart, result.starvedStart = nil, nil, nil, nil
 	end
 
 	return {
-		hours = hours,
-		fedHours = fedHours,
-		starvedHours = starvedHours,
-		wateredHours = wateredHours,
-		unitsConsumed = unitsConsumed,
-		waterConsumed = waterConsumed,
-		chickens = results,
+		hours = seconds / Tuning.HOUR,
+		unitsConsumed = (input.units or 0) - units,
+		waterConsumed = (input.water or 0) - water,
+		chickens = chickens,
 	}
 end
 

@@ -23,7 +23,7 @@ _Avoid_: Island
 The player's pet, driven by a finite state machine. Stays within the play area's bounds at all times.
 
 **State** (chicken):
-One mode of chicken behavior — idle, approach, eat, drink, bathe, wander, nest, or held — each with its own animation. The chicken is always in exactly one state.
+One mode of chicken behavior — idle, approach, eat, drink, bathe, wander, nest, or held — each with its own animation. The chicken is always in exactly one state. Being petted is not a state: it pauses whichever one she is in.
 
 **Dwell time**:
 How long a chicken remains in idle before the state machine re-decides. Randomized to avoid a robotic cadence. Wander has none — it ends when its wander route does.
@@ -44,7 +44,7 @@ A purely visual highlight (a ring under the chicken) shown while that chicken's 
 _Avoid_: Frozen, focused
 
 **Satiety**:
-The gauge tracking how fed a chicken is (0–100, 100 is full). Falls steadily over real hours while the chicken isn't eating (more slowly while satisfied), rises while eating. Displayed to the player as "Fullness."
+The gauge tracking how fed a chicken is (0–100, 100 is full). Falls steadily over real hours while the chicken isn't eating (more slowly while satisfied), all the way to 0 if no food is out, and rises only while eating placed food or a mealworm. Displayed to the player as "Fullness."
 _Avoid_: Hunger (inverted sense — high hunger would mean *unfed*, which is the opposite convention every gauge in this game uses)
 
 **Satisfied**:
@@ -52,17 +52,14 @@ A short spell after a chicken's satiety reaches 100 during which it falls much m
 _Avoid_: Satisfied buff as a mood effect (it has no effect on happiness), full
 
 **Hunger trigger**:
-The satiety level below which a chicken starts a hunger cycle. It has one for each way of eating — a higher one used while any food source exists, a much lower one while only foraging is possible — and both are re-picked at random each time a hunger cycle ends, so a chicken doesn't get hungry at the same number every time. Which one applies follows whether food exists *right now*, so placing food draws a moderately hungry chicken at once.
+The satiety level below which a chicken starts a hunger cycle, provided a food source exists. Re-picked at random each time a hunger cycle ends, so a chicken doesn't get hungry at the same number every time. With no food source anywhere the chicken isn't hunger-seeking at all — it idles and wanders while satiety falls — and placing food draws a moderately hungry chicken at once.
 
 **Hunger cycle**:
-The stretch from a chicken crossing its hunger trigger until it is done eating: until satiety reaches 100 when eating from a food source, or until it reaches the forage stop when foraging. Made up of one or more bouts.
+The stretch from a chicken crossing its hunger trigger until it is done eating: until satiety reaches 100, or until the last food source disappears. Made up of one or more bouts.
 
 **Bout**:
 One sitting of eating from a food source: it closes half the gap between satiety and 100, or all of it once that gap is small. Bouts within a hunger cycle are separated by a short break of wandering or idling.
 _Avoid_: Meal (a meal is ambiguous between one bout and the whole cycle)
-
-**Forage stop**:
-The satiety level (re-picked each hunger cycle, always under the forage ceiling of 50) at which a foraging chicken stops eating and its hunger cycle ends.
 
 **Cleanliness**:
 The gauge tracking how clean a chicken's surroundings are (0–100, 100 is clean). Doesn't drain directly — it eases toward a target set by how many droppings and floor eggs currently exist, so cleaning a dropping or collecting a floor egg raises the target and cleanliness recovers toward it gradually — mostly within a quarter hour, fully within the hour — rather than being restored directly by the act of cleaning. Time away recovers it the same way, so cleaning up and coming straight back doesn't return a spotless chicken. Ash is the one thing that bumps the gauge itself; that bump then eases back toward the target like any other value, so it lasts in a tidy garden and fades in a messy one.
@@ -75,10 +72,18 @@ _Avoid_: Thirst (inverted sense, same reason as hunger)
 The hydration level below which a chicken goes to drink, re-picked at random after every drink. Only matters while some water bowl holds water. Thirst and hunger never run at once: when both have triggered, whichever gauge is lower is seen to first.
 
 **Dehydrated**:
-A chicken whose hydration is below 10. Dehydration drags happiness down on top of the usual weighting — the closer to empty, the closer happiness gets to zero — and a happiness buff can't offset it beyond its own flat boost (see ADR-0019).
+A chicken whose hydration is below 10. Dehydration drags happiness down on top of the usual weighting — the closer to empty, the closer happiness gets to zero — and a happiness buff can't offset it beyond its own flat boost (see ADR-0019). A dehydrated hen fails a lay gate.
+
+**Starving**:
+A chicken whose satiety is below 10, dehydration's mirror for food: happiness is dragged toward zero the same way. When a chicken is both starving and dehydrated, only the worse of the two applies. A starving hen fails a lay gate (see ADR-0026).
+_Avoid_: Hungry (hungry is a chicken in a hunger cycle, which starts far above this)
+
+**Lay gate**:
+A hard stop on laying, separate from happiness: a hen that is starving or dehydrated lays nothing, whatever her happiness reads, so no buff can turn neglect into eggs. While a gate fails her lay progress holds, and progress already banked can't fire; only a lay already under way (she's walking to the bed) still lands.
+_Avoid_: Happiness gate (that's the minimum happiness for laying, a different threshold)
 
 **Happiness**:
-A chicken's overall well-being, computed on read from satiety, cleanliness, hydration, and any active happiness buff — never stored on its own. Weighted so that whichever gauge is worst pulls the result down harder, and pulled further toward zero while dehydrated.
+A chicken's overall well-being, computed on read from satiety, cleanliness, hydration, and any active happiness buff — never stored on its own. Weighted so that whichever gauge is worst pulls the result down harder, and pulled further toward zero while starving or dehydrated.
 _Avoid_: Mood, wellbeing
 
 **Dropping**:
@@ -90,15 +95,21 @@ A chicken's steady, FSM-independent progress toward its next dropping, filling a
 _Avoid_: Poop clock (retired — there is no longer a recurring roll)
 
 **Lay progress**:
-A hen's steady, FSM-independent progress toward her next egg, filling faster the happier she is and not at all below a minimum happiness. Like poop progress, each egg needs a slightly different amount and leftover progress carries over. A hen can't lay again until a minimum gap has passed since her last egg landed. Completing it sends the hen into the nest state; the progress is only spent once the egg actually lands, so an interrupted walk doesn't lose the egg (see ADR-0013).
+A hen's steady, FSM-independent progress toward her next egg, filling faster the happier she is, not at all below a minimum happiness, and not at all while a lay gate fails. Like poop progress, each egg needs a slightly different amount and leftover progress carries over. A hen can't lay again until a minimum gap has passed since her last egg landed. Completing it sends the hen into the nest state; the progress is only spent once the egg actually lands, so an interrupted walk doesn't lose the egg (see ADR-0013).
 _Avoid_: Lay clock (retired — there is no longer a recurring roll)
 
 **Happiness buff**:
-A flat, temporary happiness boost lasting an hour. A chicken has at most one: granting it again while it's still active restarts the hour rather than stacking a second bonus. Granted by any treat (mealworm or ash).
-_Avoid_: Pet buff (tapping a chicken no longer grants one)
+A flat, temporary happiness boost. There are two: the treat buff (+25 for an hour, granted by any treat) and the pet buff. A chicken has at most one of each, and they never add up — the larger active one is the bonus. Granting one again while it's active restarts its time from that moment; it never adds time to what's left.
+
+**Pet**:
+Stroking a chicken: a touch that moves across her before it has been held long enough to pick her up. She pauses and sits for as long as she's stroked, small hearts float up, and on release she carries on with exactly what she was doing. About two seconds of stroking completes the pet: a burst of hearts (once per touch) and the pet buff. She can't be petted while on or hopping to a hen bed, while eating a treat or bathing, or while held. Petting clears a selected item, like picking her up. A tap still grants nothing (see ADR-0028).
+_Avoid_: Pat, cuddle, stroke (as the feature's name)
+
+**Pet buff**:
+The happiness buff a completed pet grants: +10 for 30 minutes.
 
 **Chicken tooltip**:
-The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — showing whether she's laying at the full rate, a reduced rate, or not at all. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. While an item is selected, taps use it instead: no tooltip opens, an item tooltip closes the moment the item is selected, but a chicken's or fixture's tooltip stays open through selecting and using it. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
+The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — that follows the happiness number: with no lay gate failing, that is whether she's laying at the full rate, a reduced rate, or not at all. Nothing is spelled out in words — the face and the bars carry it. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. While an item is selected, taps use it instead: no tooltip opens, an item tooltip closes the moment the item is selected, but a chicken's or fixture's tooltip stays open through selecting and using it. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
 _Avoid_: Popover, inspector, stats panel
 
 **Clock**:
@@ -234,10 +245,6 @@ _Avoid_: TTL, lifetime, spoilage, durability, charges
 The measure of food a food source holds, defined by what a fed chicken eats: about 100 food units keep one well-fed chicken fed for an hour. Each unit is worth only a small amount of satiety, so keeping a chicken fed is cheap but refilling a hungry one is deliberately expensive — a mealworm is the fast way back.
 _Avoid_: Fullness, satiety points (satiety is the chicken's gauge, not the food's)
 
-**Forage**:
-Eating from the bare ground, which a chicken falls back to only when no food source exists anywhere in the garden — a treat waiting to be noticed doesn't count. Starts only once satiety drops below the (low) forage hunger trigger and ends at the forage stop, never above halfway, so an unfed chicken hovers around a quarter full and placed food is the only route to a fully fed one.
-_Avoid_: Graze, peck, scratching (as names for foraging; a peck point is unrelated)
-
 **Peck point**:
 The spot on a food source or mealworm where a chicken's beak lands while it eats: somewhere along the item's bottom edge, or one particular seed for a seed patch. Picked fresh on each approach; any number of chickens may pick overlapping ones.
 _Avoid_: Eating spot (that's where the chicken stands, not where it pecks)
@@ -247,17 +254,17 @@ The state a chicken is in while walking to a food source or treat it has picked.
 _Avoid_: Seek, travel, pathing
 
 **Eat**:
-The state a chicken is in while actively eating — one bout from a claimed food source, or foraging in place with no target. Ends once the bout's target (or the forage stop) is reached, and can also be cut short at any time by a treat, being picked up, or the food source running out; a forage bout also ends the moment food is placed, so the chicken can head for it.
+The state a chicken is in while actively eating one bout from a claimed food source. Ends once the bout's target is reached, and can also be cut short at any time by a treat, being picked up, or the food source running out. Pecking always means she is eating something the player placed.
 _Avoid_: Eating (eat is the state's own name already)
 
 **Feed**:
-The single shared owner of every placed food source, and the one place a hungry chicken asks what there is to eat. Answers with a food source or with nothing — and nothing is what sends the chicken to forage. Owned by Garden alongside its chicken/bed/egg/dropping state — Garden owns everything else in the world, Feed owns the food sources, Treats owns the one-use items (see ADR-0011, ADR-0018).
+The single shared owner of every placed food source, and the one place a hungry chicken asks what there is to eat. Answers with a food source or with nothing — and with nothing out, the chicken simply isn't hungry-seeking. Owned by Garden alongside its chicken/bed/egg/dropping state — Garden owns everything else in the world, Feed owns the food sources, Treats owns the one-use items (see ADR-0011, ADR-0018).
 
 ## Time away
 
 **Offline catch-up**:
-Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — but works out the result in a few broad phases (food and water each lasting, then running out) instead of replaying every moment. Time away counts for at most a day. Treats are never used during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
-_Avoid_: Offline simulation, replay (it deliberately doesn't step through time)
+Bringing the garden up to date for time the app was closed or in the background, once that time reaches the offline threshold. It lands where watching would have landed — same rules, same numbers — by advancing the whole garden in fixed five-minute steps of plain arithmetic: food and water kept topped up while they last, droppings and floor eggs adding dirt as they appear, buffs and the satisfied spell counting until they expire, eggs laid under the same lay rate and lay gates as live play. Time away counts for at most a day. Treats are never used during it — they stay out for the chicken to find once the player is back — and each chicken reappears somewhere new, as if it had wandered off meanwhile.
+_Avoid_: Offline simulation, replay (it steps the numbers, not the chickens: no walking, no states)
 
 **Offline threshold**:
 How long the player must be away (ten minutes) before a return counts as time away. A shorter absence — a quick app switch — simply continues the game as if it had never paused: no catch-up, no welcome-back card, and the chicken stays where it was.
@@ -267,12 +274,12 @@ The message shown after every offline catch-up, telling the player how long they
 _Avoid_: Welcome screen, offline report (it reports only the time away, not what happened)
 
 **Fed plateau**:
-The satiety a chicken with food available averages over its hunger cycles. Offline catch-up holds a fed chicken there while food lasts. Its counterpart for an unfed chicken is the **unfed floor**, where foraging settles.
+The satiety a chicken with food available averages over its hunger cycles. Offline catch-up holds a fed chicken there while food lasts; once food runs out, satiety falls to 0.
 
 ## Treats
 
 **Treat**:
-Anything the player places in the play area that's used up whole by the single chicken that reaches it first, granting a one-time boost to one gauge (an amount each treat type defines) plus the happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken within alert range was doing. Once claimed, the chicken sees it through: a newer or nearer treat doesn't draw it away, and neither does a lay. Only being picked up, or the player dragging the treat away, breaks the claim. A chicken uses one even when the gauge it helps is already full. Never counts as food for hunger or foraging, even a mealworm, nor as water for thirst, even a watermelon slice, and never used during time away. Placement spacing matches food sources. Mealworm (satiety), watermelon slice (hydration), and ash (cleanliness) so far.
+Anything the player places in the play area that's used up whole by the single chicken that reaches it first, granting a one-time boost to one gauge (an amount each treat type defines) plus the happiness buff, then disappearing. Placing one immediately preempts whatever the nearest chicken within alert range was doing. Once claimed, the chicken sees it through: a newer or nearer treat doesn't draw it away, and neither does a lay. Only being picked up, or the player dragging the treat away, breaks the claim. A chicken uses one even when the gauge it helps is already full. Never counts as food for hunger, even a mealworm, nor as water for thirst, even a watermelon slice, and never used during time away. Placement spacing matches food sources. Mealworm (satiety), watermelon slice (hydration), and ash (cleanliness) so far.
 _Avoid_: Snack, one-shot food, pamper item (retired)
 
 **Mealworm**:
