@@ -6,17 +6,19 @@ local WelcomeCard = require("src.ui.welcome_card")
 -- an egg bubble before a need bubble. Timers are real time, not sim time.
 local ThoughtBubble = {}
 
+-- The bubble is world art, at the chicken's pixel scale. Native px: the
+-- tail dot's centre is TAIL_X from the left edge, at the bottom; the icon
+-- slot's centre sits at SLOT_X, SLOT_Y.
 local BUBBLE_PATH = "assets/ui/thought_bubble.png"
--- The same egg art as the world and the HUD, at twice the bubble's pixel
--- size so it fills the slot and stays on the bubble's pixel grid.
-local EGG_ICON = "assets/fauna/ChickenEgg.png"
-local EGG_WIDTH, EGG_HEIGHT, EGG_SCALE = 6, 7, 2
--- Art in native px: the tail dot's centre is TAIL_X from the left edge, at
--- the bottom; the 16x16 icon slot's centre sits at SLOT_X, SLOT_Y.
-local ART_WIDTH, ART_HEIGHT = 22, 29
-local TAIL_X = 1
-local SLOT_X, SLOT_Y = 11, 11
+local ART_WIDTH, ART_HEIGHT = 13, 18
+local TAIL_X = 0.5
+local SLOT_X, SLOT_Y = 6.5, 6.5
+-- Gauge icons are 16x16 UI art, shrunk if needed to fit this many world px.
 local ICON_SIZE = 16
+local ICON_MAX = 10
+-- The egg is world art already: the same egg as on the ground and the HUD.
+local EGG_ICON = "assets/fauna/ChickenEgg.png"
+local EGG_WIDTH, EGG_HEIGHT = 6, 7
 
 local POP_TIME = 150 -- ms
 local SHOW_TIME = 5000
@@ -44,7 +46,7 @@ end
 -- a hen facing left. Only the bubble flips; the icon never does.
 local function place(entry)
 	local x, y, facing = entry.chicken:getBubbleAnchor()
-	local scale = Constants.UI_PIXEL_SCALE
+	local scale = Constants.PIXEL_SCALE
 	local group = entry.group
 	group.x, group.y = x, y
 	group.bubble.xScale = facing
@@ -53,17 +55,20 @@ local function place(entry)
 end
 
 local function show(chicken, kind, iconPath, now, atGate)
-	local scale = Constants.UI_PIXEL_SCALE
+	local scale = Constants.PIXEL_SCALE
 	local group = display.newGroup()
 	Hearts.getLayer():insert(group)
 
 	local bubble = display.newImageRect(group, BUBBLE_PATH, ART_WIDTH * scale, ART_HEIGHT * scale)
 	bubble.anchorX, bubble.anchorY = 0, 1
-	local iconWidth, iconHeight = ICON_SIZE, ICON_SIZE
+	local iconWidth, iconHeight
 	if iconPath == EGG_ICON then
-		iconWidth, iconHeight = EGG_WIDTH * EGG_SCALE, EGG_HEIGHT * EGG_SCALE
+		iconWidth, iconHeight = EGG_WIDTH * scale, EGG_HEIGHT * scale
+	else
+		iconWidth = math.min(ICON_SIZE * Constants.UI_PIXEL_SCALE, ICON_MAX * scale)
+		iconHeight = iconWidth
 	end
-	local icon = display.newImageRect(group, iconPath, iconWidth * scale, iconHeight * scale)
+	local icon = display.newImageRect(group, iconPath, iconWidth, iconHeight)
 	icon.y = -(ART_HEIGHT - SLOT_Y) * scale
 	group.bubble, group.icon = bubble, icon
 
