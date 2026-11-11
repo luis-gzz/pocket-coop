@@ -17,6 +17,7 @@ local Shadow = require("src.objects.shadow")
 local WanderRoute = require("src.util.wander_route")
 local Footprints = require("src.systems.footprints")
 local Hearts = require("src.objects.hearts")
+local ThoughtBubble = require("src.ui.thought_bubble")
 
 local Chicken = {}
 Chicken.__index = Chicken
@@ -45,6 +46,8 @@ local NAME = "Pollo"
 local FULLNESS_ICON = "assets/objects/carrot.png"
 local CLEANLINESS_ICON = "assets/objects/sparkle.png"
 local HYDRATION_ICON = "assets/objects/water_drop.png"
+-- Each gauge's icon, shared by the tooltip and need bubbles.
+Chicken.ICONS = { satiety = FULLNESS_ICON, cleanliness = CLEANLINESS_ICON, hydration = HYDRATION_ICON }
 
 local IDLE_DWELL = { min = 2, max = 4 } -- sim-seconds
 local IDLE_WANDER_SPLIT = 0.4 -- probability of idle vs wander when not eating
@@ -64,6 +67,10 @@ local PECK_PICK_ATTEMPTS = 5
 local WIGGLE_ANGLE = 8
 local WIGGLE_STEP_TIME = 90
 local LONG_PRESS_TIME = 350 -- ms; shorter touches open the tooltip instead
+
+-- Thought bubble anchor: her head's offset from centre, and the gap above it.
+local HEAD_DX = 3 * DISPLAY_SCALE
+local BUBBLE_GAP = 1 * DISPLAY_SCALE
 
 -- Pet (ADR-0028): a touch that travels this far before the long press fires
 -- strokes her instead. Progress is seconds of stroking over the padded hit zone.
@@ -596,6 +603,52 @@ function Chicken:heartSpot()
 	return self.view.x, self.view.y - GROUND_OFFSET
 end
 
+-- Her tooltip: opened by a tap on her, or on her thought bubble.
+function Chicken:showTooltip()
+	Tooltip.show({
+		x = self.view.x,
+		y = self.view.y,
+		corner = true,
+		keepWhileSelecting = true,
+		title = NAME,
+		source = self,
+		onShow = function()
+			self:setSelected(true)
+		end,
+		onHide = function()
+			self:setSelected(false)
+		end,
+		rows = {
+			{
+				icon = HappinessIcon.live(function() return self.gauges:getHappiness() end),
+				getValue = function() return self.gauges:getHappiness() end,
+			},
+			{ icon = FULLNESS_ICON, getValue = function() return self.gauges.satiety end },
+			{ icon = CLEANLINESS_ICON, getValue = function() return self.gauges.cleanliness end },
+			{ icon = HYDRATION_ICON, getValue = function() return self.gauges.hydration end },
+		},
+	})
+end
+
+-- Thought bubbles wait while she's held or petted, and need bubbles also
+-- while her tooltip is open (it shows the bars already).
+function Chicken:isBubbleHeldBack(includeTooltip)
+	return self.machine.name == "held" or self.petted or (includeTooltip and self.selected)
+end
+
+function Chicken:getUnmetNeed(hasFood, hasWater)
+	local gauges = self.gauges
+	return Gauges.unmetNeed(gauges.satiety, gauges.cleanliness, gauges.hydration, hasFood, hasWater)
+end
+
+-- Where a thought bubble's tail points: just above her head, which sits
+-- forward of centre. Returns x, y and her facing.
+function Chicken:getBubbleAnchor()
+	local x = self.view.x + self.facing * HEAD_DX
+	local y = self.view.y - GROUND_OFFSET - BUBBLE_GAP + self.body.y * DISPLAY_SCALE
+	return x, y, self.facing
+end
+
 -- Purely visual - a selected chicken keeps doing whatever it was doing.
 function Chicken:setSelected(value)
 	self.selected = value
@@ -630,6 +683,7 @@ function Chicken:beginNesting(target)
 	if target.kind == "immediate" then
 		self.layCallbacks.commitLay(target, self.view.x, self.view.y)
 		self.gauges:markLaid()
+		ThoughtBubble.flashEgg(self)
 		return
 	end
 	self.layTarget = target
@@ -735,7 +789,9 @@ function Chicken:stopHop()
 	self.body.y = 0
 end
 
+-- On the bed: the egg bubble's job is done.
 function Chicken:mount(bed)
+	self.wantsEggBubble = false
 	self.mountedBed = bed
 	bed.occupant = self
 end
@@ -762,6 +818,10 @@ end
 
 -- Lays where she stands (a floor spot, or no bed at all), then re-decides.
 function Chicken:layAndMoveOn()
+	self.wantsEggBubble = false
+	if self.layTarget.kind == "immediate" then
+		ThoughtBubble.flashEgg(self)
+	end
 	if self.layCallbacks.commitLay(self.layTarget, self.view.x, self.view.y) then
 		self.layTarget = nil
 		self.gauges:markLaid()
@@ -1097,29 +1157,7 @@ function Chicken:setupTouch()
 					self.pendingTouch = nil
 					-- With an item selected, the tap uses it instead (ADR-0022).
 					if event.phase == "ended" and not Selection.get() then
-						Tooltip.show({
-							x = self.view.x,
-							y = self.view.y,
-							corner = true,
-							keepWhileSelecting = true,
-							title = NAME,
-							source = self,
-							onShow = function()
-								self:setSelected(true)
-							end,
-							onHide = function()
-								self:setSelected(false)
-							end,
-							rows = {
-								{
-									icon = HappinessIcon.live(function() return self.gauges:getHappiness() end),
-									getValue = function() return self.gauges:getHappiness() end,
-								},
-								{ icon = FULLNESS_ICON, getValue = function() return self.gauges.satiety end },
-								{ icon = CLEANLINESS_ICON, getValue = function() return self.gauges.cleanliness end },
-								{ icon = HYDRATION_ICON, getValue = function() return self.gauges.hydration end },
-							},
-						})
+						self:showTooltip()
 					end
 				elseif self.machine.name == "held" then
 					DragLift.finish(self.lift)
@@ -1249,6 +1287,7 @@ STATES = {
 				chicken.machine:changeState(decideNextState(chicken))
 				return
 			end
+			chicken.wantsEggBubble = true
 
 			if target.kind ~= "bed" then
 				local bounds = getBounds()
@@ -1285,6 +1324,7 @@ STATES = {
 			Clock.cancel(chicken.settleHandle)
 			chicken.settleHandle = nil
 			chicken.nestWaiting = false
+			chicken.wantsEggBubble = false
 			chicken:dismount()
 		end,
 	},

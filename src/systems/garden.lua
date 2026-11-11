@@ -17,6 +17,7 @@ local Chicken = require("src.objects.chicken.chicken")
 local Bed = require("src.objects.items.bed")
 local Egg = require("src.objects.items.egg")
 local Dropping = require("src.objects.items.dropping")
+local ThoughtBubble = require("src.ui.thought_bubble")
 
 -- The single shared owner of every chicken, hen bed, egg, and dropping in
 -- the garden, plus the player's collected-egg count, with Feed, Treats, and
@@ -386,12 +387,81 @@ local function onFrame(event)
 
 	Clock.advance(rawDt)
 	stepChickens(Clock.getDt())
+	ThoughtBubble.update(chickens, Feed.hasFoodSource(), Bowls.hasWater())
+end
+
+-- Debug: hold an egg back after every full catch-up, not 1 in 3.
+Garden.debugHeldEggAlways = false
+
+local HELD_EGG_DELAY = { min = 15000, max = 30000 } -- real ms after the card closes
+
+-- Places a hen's held egg now (suspend, or before the next catch-up),
+-- dropping any walk she was on to lay it (ADR-0029).
+local function landHeldEgg(chicken)
+	if chicken.gauges.pendingLay then
+		chicken:resetForCatchUp()
+	end
+	local x, y = chicken:getPosition()
+	local target = Garden.pickLayTarget(x, y)
+	if target.kind ~= "immediate" then
+		x, y = target.x, target.y
+	end
+	placeEgg(target, x, y)
+	chicken.gauges.heldEgg = false
+	chicken.gauges.heldEggReady = false
+end
+
+function Garden.landHeldEggs()
+	for _, chicken in ipairs(chickens) do
+		if chicken.gauges.heldEgg then
+			landHeldEgg(chicken)
+		end
+	end
+end
+
+-- After the welcome-back card closes (or a launch with no catch-up): each
+-- held egg is laid live a little later.
+function Garden.startHeldEggs()
+	for _, chicken in ipairs(chickens) do
+		local gauges = chicken.gauges
+		if gauges.heldEgg and not gauges.heldEggTimer then
+			local delay = HELD_EGG_DELAY.min + math.random() * (HELD_EGG_DELAY.max - HELD_EGG_DELAY.min)
+			gauges.heldEggTimer = timer.performWithDelay(delay, function()
+				gauges.heldEggTimer = nil
+				if gauges.heldEgg then
+					gauges.heldEggReady = true
+				end
+			end)
+		end
+	end
+end
+
+-- Which hen, if any, keeps her last egg from the absence: 1 in 3, one hen
+-- at random from those that laid and pass both lay gates now.
+local function pickHeldEggHen(result)
+	if not (Garden.debugHeldEggAlways or math.random() < Tuning.HELD_EGG_CHANCE) then
+		return nil
+	end
+	local candidates = {}
+	for i, outcome in ipairs(result.chickens) do
+		if outcome.eggs > 0 and outcome.satiety >= Tuning.LAY_SATIETY_GATE
+			and outcome.hydration >= Tuning.DEHYDRATED_BELOW then
+			table.insert(candidates, i)
+		end
+	end
+	if #candidates == 0 then
+		return nil
+	end
+	return candidates[math.random(#candidates)]
 end
 
 -- Full offline catch-up (ADR-0027): food + satiety, water + hydration,
 -- droppings, eggs, then cleanliness, then save. Treats are left out for the live chicken.
 local function catchUp(elapsedSeconds)
 	elapsedSeconds = math.min(elapsedSeconds, Tuning.OFFLINE_CAP)
+
+	-- A held egg from last time lands first, as if laid then.
+	Garden.landHeldEggs()
 
 	-- Whatever each chicken was mid-way through no longer applies, and it
 	-- reappears somewhere new, as if it had been wandering meanwhile.
@@ -430,6 +500,7 @@ local function catchUp(elapsedSeconds)
 	end
 
 	local result = Offline.compute(input, elapsedSeconds)
+	local heldIndex = pickHeldEggHen(result)
 	Feed.drainOldest(result.unitsConsumed)
 	Bowls.drainOldest(result.waterConsumed)
 
@@ -456,13 +527,23 @@ local function catchUp(elapsedSeconds)
 		end
 
 		local hx, hy = chicken:getPosition()
-		for _ = 1, outcome.eggs do
+		local eggs = outcome.eggs - ((i == heldIndex) and 1 or 0)
+		for _ = 1, eggs do
 			local target = Garden.pickLayTarget(hx, hy)
 			local x, y = target.x, target.y
 			if target.kind == "immediate" then
 				x, y = randomPlayAreaPoint(Egg.WIDTH, Egg.HEIGHT)
 			end
 			placeEgg(target, x, y)
+		end
+	end
+
+	-- The held egg needs a bed slot left to hop onto; otherwise it lands now.
+	if heldIndex then
+		local chicken = chickens[heldIndex]
+		chicken.gauges.heldEgg = true
+		if not findNearestBed(chicken.view.x, chicken.view.y, true) then
+			landHeldEgg(chicken)
 		end
 	end
 

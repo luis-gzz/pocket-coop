@@ -18,6 +18,11 @@ function Hearts.createLayer()
 	return layer
 end
 
+-- Shared with thought bubbles, which draw in the same band.
+function Hearts.getLayer()
+	return layer
+end
+
 function Hearts.spawn(x, y)
 	local heart = display.newImageRect(layer, PATH, SIZE, SIZE)
 	heart.x = x + (math.random() * 2 - 1) * JITTER_X

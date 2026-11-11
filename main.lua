@@ -65,8 +65,12 @@ local function returnToNow()
 	local didFullPass, elapsed = Garden.returnToNow()
 	if didFullPass then
 		WelcomeCard.show(elapsed)
+	else
+		Garden.startHeldEggs()
 	end
 end
+-- A held egg is laid a little after the welcome-back card closes (ADR-0029).
+WelcomeCard.onHidden(Garden.startHeldEggs)
 returnToNow()
 
 timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
@@ -76,6 +80,7 @@ timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
 		Selection.clear()
+		Garden.landHeldEggs()
 		Garden.save()
 	elseif event.type == "applicationResume" then
 		returnToNow()

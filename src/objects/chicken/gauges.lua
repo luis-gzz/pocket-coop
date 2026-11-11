@@ -91,6 +91,25 @@ function Gauges.layRate(satiety, cleanliness, hydration, bonus)
 	return Gauges.layRatePerHour(Gauges.happinessFor(satiety, cleanliness, hydration, bonus))
 end
 
+-- The want a need bubble shows: the lowest of the gauges that are under
+-- NEED_BUBBLE_BELOW with nothing out to fix them. Returns the gauge name,
+-- whether it's at the lay gate (under 10), and its value; nil if none.
+function Gauges.unmetNeed(satiety, cleanliness, hydration, hasFood, hasWater)
+	local need, value
+	local function consider(name, gauge, unfixable)
+		if unfixable and gauge < Tuning.NEED_BUBBLE_BELOW and (not value or gauge < value) then
+			need, value = name, gauge
+		end
+	end
+	consider("satiety", satiety, not hasFood)
+	consider("hydration", hydration, not hasWater)
+	consider("cleanliness", cleanliness, true)
+	if need then
+		return need, value < Tuning.LAY_SATIETY_GATE, value
+	end
+	return nil
+end
+
 -- "sad" while she can't lay, "meh" at a reduced lay rate, "happy" at the full rate.
 function Gauges.happinessFace(happiness)
 	if happiness < Tuning.LAY_HAPPINESS_GATE then
@@ -127,6 +146,9 @@ function Gauges.new(saved)
 	self.layProgress = saved.layProgress or 0
 	self.layThreshold = saved.layThreshold or Tuning.randomIn(Tuning.THRESHOLD_JITTER)
 	self.lastLayAt = saved.lastLayAt or -math.huge
+	-- Held egg (ADR-0029): an egg already earned, laid live once heldEggReady.
+	self.heldEgg = saved.heldEgg or false
+	self.heldEggReady = false
 
 	-- Set when lay progress fires, cleared by markLaid() once the egg lands
 	-- (ADR-0013). Not persisted - a quit mid-walk just re-fires next launch.
@@ -276,12 +298,14 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater
 	end
 
 	-- A gated hen's progress holds, and banked progress can't fire (ADR-0026).
+	-- A ready held egg was earned already, so it skips both (ADR-0029).
 	local layRate = self:getLayRate()
 	self.layProgress = self.layProgress + layRate / Tuning.HOUR * dt
 	local laid = false
-	if not self.pendingLay and not isHeld and layRate > 0
+	local heldEggDue = self.heldEgg and self.heldEggReady
+	if not self.pendingLay and not isHeld and (heldEggDue or (layRate > 0
 		and self.layProgress >= self.layThreshold
-		and self.now - self.lastLayAt >= Tuning.LAY_MIN_GAP then
+		and self.now - self.lastLayAt >= Tuning.LAY_MIN_GAP)) then
 		self.pendingLay = true
 		laid = true
 	end
@@ -289,11 +313,16 @@ function Gauges:update(dt, dirt, chickenX, chickenY, isHeld, hasSource, hasWater
 	return spawned, laid, delivered, boutDone, drank
 end
 
--- Called once a pending egg lands: spends the progress and starts the
--- minimum gap from here (ADR-0013).
+-- Called once a pending egg lands: spends the progress (or the held egg,
+-- already paid for) and starts the minimum gap from here (ADR-0013).
 function Gauges:markLaid()
-	self.layProgress = math.max(0, self.layProgress - self.layThreshold)
-	self.layThreshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
+	if self.heldEgg then
+		self.heldEgg = false
+		self.heldEggReady = false
+	else
+		self.layProgress = math.max(0, self.layProgress - self.layThreshold)
+		self.layThreshold = Tuning.randomIn(Tuning.THRESHOLD_JITTER)
+	end
 	self.lastLayAt = self.now
 	self.pendingLay = false
 end
@@ -362,6 +391,7 @@ function Gauges:getSaveData()
 		poopThreshold = self.poopThreshold,
 		layProgress = self.layProgress,
 		layThreshold = self.layThreshold,
+		heldEgg = self.heldEgg or nil,
 		-- -math.huge ("never laid") doesn't survive JSON; nil reloads as it.
 		lastLayAt = (self.lastLayAt > -math.huge) and self.lastLayAt or nil,
 	}

@@ -58,6 +58,13 @@ Tuning.LAY_FULL_RATE_HAPPINESS = 75
 Tuning.LAY_MIN_RATE_FACTOR = 0.25 -- fraction of base rate right at the gate
 Tuning.LAY_MIN_GAP = HOUR
 
+-- Need bubbles: a gauge under this with nothing out to fix it.
+Tuning.NEED_BUBBLE_BELOW = 50
+
+-- Held egg (ADR-0029): chance per full catch-up that one hen keeps her last
+-- egg from the absence to lay live.
+Tuning.HELD_EGG_CHANCE = 1 / 3
+
 -- Progress thresholds (poop and lay) are jittered per event so online
 -- doesn't feel clockwork.
 Tuning.THRESHOLD_JITTER = { min = 0.8, max = 1.2 }

@@ -161,5 +161,43 @@ do
 	check("step size: halving changes eggs by <= 1", math.abs(coarse - fine) <= 1, string.format("%.2f vs %.2f", coarse, fine))
 end
 
+-- 7. Need bubbles: what each one asks for.
+do
+	local function need(...)
+		local name, atGate = Gauges.unmetNeed(...)
+		return name, atGate
+	end
+	check("need: none when all at or over 50", need(50, 50, 50, false, false) == nil)
+	check("need: hungry only with no food out", need(40, 100, 100, false, true) == "satiety"
+		and need(40, 100, 100, true, true) == nil)
+	check("need: thirsty only with no water out", need(100, 100, 40, true, false) == "hydration"
+		and need(100, 100, 40, true, true) == nil)
+	check("need: dirty garden always counts", need(100, 40, 100, true, true) == "cleanliness")
+	check("need: lowest gauge wins", need(30, 40, 20, false, false) == "hydration"
+		and need(30, 40, 20, false, true) == "satiety")
+	local _, atGate = need(9, 100, 100, false, true)
+	local _, notGate = need(10, 100, 100, false, true)
+	check("need: at the gate below 10", atGate == true and notGate == false)
+end
+
+-- 8. Held egg: laid live once ready, without spending progress.
+do
+	math.randomseed(2)
+	local gauges = Gauges.new({ satiety = 0, layProgress = 0.4, layThreshold = 1, heldEgg = true })
+	gauges.lastLayAt = gauges.now
+	local _, laid = gauges:update(1, 0, 0, 0, false, false, true)
+	check("held egg: waits until ready", not laid)
+	gauges.heldEggReady = true
+	_, laid = gauges:update(1, 0, 0, 0, true, false, true)
+	check("held egg: not while held", not laid)
+	_, laid = gauges:update(1, 0, 0, 0, false, false, true)
+	check("held egg: fires when ready, ignoring gap and gates", laid)
+	gauges:markLaid()
+	check("held egg: progress kept, flag cleared", gauges.layProgress == 0.4 and not gauges.heldEgg
+		and not gauges.heldEggReady and gauges.lastLayAt == gauges.now)
+	check("held egg: saved", Gauges.new({ heldEgg = true }):getSaveData().heldEgg == true
+		and gauges:getSaveData().heldEgg == nil)
+end
+
 print(failures == 0 and "\nAll checks passed." or ("\n" .. failures .. " check(s) failed."))
 os.exit(failures == 0 and 0 or 1)

@@ -108,6 +108,21 @@ _Avoid_: Pat, cuddle, stroke (as the feature's name)
 **Pet buff**:
 The happiness buff a completed pet grants: +10 for 30 minutes.
 
+**Float**:
+A small icon that drifts up from a chicken and fades: something that just happened and is already over, such as petting hearts. Never used for something she wants.
+_Avoid_: Popup, particle
+
+**Thought bubble**:
+A small cloud above a chicken's head holding one icon: something she wants, or an egg she's about to lay. Only one is on screen at a time across the whole garden. It lingers, fades, and comes back while the want lasts; tapping it opens her tooltip, even with an item selected. Never shown while she's held, petted, her tooltip is open, or the welcome-back card is up.
+_Avoid_: Speech bubble, emote, alert (an alert is a treat drawing a chicken over)
+
+**Need bubble**:
+A thought bubble for a want she can't satisfy herself: hungry with no food source out, thirsty with no bowl holding water, or a dirty garden — each once its gauge is under half. Shows the gauge icon from her tooltip for whichever of those gauges is lowest. Stays a few seconds, fades, and returns a while later until the need is met; at the lay gate it lingers longer and returns sooner. A bubble always means the player needs to do something.
+_Avoid_: Hunger bubble, warning
+
+**Egg bubble**:
+A thought bubble showing an egg, from the moment a hen gets up to lay until she's on the bed (or reaches her floor spot). Takes priority: a need bubble already up fades to make way for it.
+
 **Chicken tooltip**:
 The screen-space panel opened by tapping a chicken: its name on top, then one icon-labeled bar per gauge — happiness, fullness (satiety), cleanliness, hydration. Happiness's icon is a face — happy, meh, or sad — that follows the happiness number: with no lay gate failing, that is whether she's laying at the full rate, a reduced rate, or not at all. Nothing is spelled out in words — the face and the bars carry it. It sits in the play area's bottom-right corner, or its top-right corner if the chicken is under that spot when it opens, and stays there until dismissed. A tap anywhere dismisses it and still acts on what was tapped: tapping another chicken or item opens its tooltip in that same tap, and tapping the same one again just closes it. Item tooltips behave the same way. While an item is selected, taps use it instead: no tooltip opens, an item tooltip closes the moment the item is selected, but a chicken's or fixture's tooltip stays open through selecting and using it. Item tooltips are a separate, simpler panel anchored beside their item: a food source's shows how much is left; a treat's shows its name and what it gives.
 _Avoid_: Popover, inspector, stats panel
@@ -272,6 +287,10 @@ How long the player must be away (ten minutes) before a return counts as time aw
 **Welcome-back card**:
 The message shown after every offline catch-up, telling the player how long they were really away (not capped at a day). Dismissed with its OK button or a tap anywhere else; the game keeps running behind it.
 _Avoid_: Welcome screen, offline report (it reports only the time away, not what happened)
+
+**Held egg**:
+One egg a hen earned during time away that isn't placed by offline catch-up, so the player can watch her lay it after returning. It delays an egg, never adds one (see ADR-0029). Happens now and then after a welcome-back card, for at most one hen, only if she passes both lay gates and a bed has an open slot; she sets off to lay it shortly after the card closes, ignoring the minimum gap. Interrupted, she tries again afterwards, and it is never lost: if the app closes first, the egg lands anyway.
+_Avoid_: Bonus egg, saved egg
 
 **Fed plateau**:
 The satiety a chicken with food available averages over its hunger cycles. Offline catch-up holds a fed chicken there while food lasts; once food runs out, satiety falls to 0.
