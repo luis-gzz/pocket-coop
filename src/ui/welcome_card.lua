@@ -16,6 +16,7 @@ local BUTTON_WIDTH = 30 * Constants.PIXEL_SCALE
 local BUTTON_HEIGHT = 14 * Constants.PIXEL_SCALE
 
 local current = nil -- { dismiss, group }
+local hiddenListeners = {}
 
 -- "N min" under an hour, "N hrs" otherwise, rounded down ("1 hr"
 -- singular). Real time away - not the capped time catch-up computed with.
@@ -28,17 +29,36 @@ function WelcomeCard.formatAway(seconds)
 	return hours .. (hours == 1 and " hr" or " hrs")
 end
 
-function WelcomeCard.hide()
-	if not current then
-		return
-	end
+local function remove()
 	current.dismiss:removeSelf()
 	current.group:removeSelf()
 	current = nil
 end
 
+function WelcomeCard.hide()
+	if not current then
+		return
+	end
+	remove()
+	for _, listener in ipairs(hiddenListeners) do
+		listener()
+	end
+end
+
+function WelcomeCard.isShowing()
+	return current ~= nil
+end
+
+-- listener(), called each time the card is dismissed.
+function WelcomeCard.onHidden(listener)
+	table.insert(hiddenListeners, listener)
+end
+
 function WelcomeCard.show(elapsedSeconds)
-	WelcomeCard.hide()
+	-- Replaced, not dismissed: no hidden listeners.
+	if current then
+		remove()
+	end
 	Selection.clear()
 
 	local centerX = display.screenOriginX + display.actualContentWidth / 2

@@ -134,6 +134,10 @@ function DebugOverlay.create()
 			hidePopover()
 			Chicken.setShowRoutes(not Chicken.showRoutes)
 		end, rowWidth)
+		addButton(0, 5 * (BUTTON_HEIGHT + BUTTON_GAP), Garden.debugHeldEggAlways and "Force held egg: on" or "Force held egg: off", function()
+			hidePopover()
+			Garden.debugHeldEggAlways = not Garden.debugHeldEggAlways
+		end, rowWidth)
 
 		current = { dismiss = dismiss, group = group }
 	end

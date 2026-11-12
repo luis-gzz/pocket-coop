@@ -18,6 +18,7 @@ local Garden = require("src.systems.garden")
 local Hud = require("src.ui.hud")
 local Toolbar = require("src.ui.toolbar")
 local Selection = require("src.ui.selection")
+local Hearts = require("src.objects.hearts")
 local Save = require("src.systems.save")
 local DebugOverlay = require("src.ui.debug_overlay")
 local WelcomeCard = require("src.ui.welcome_card")
@@ -49,6 +50,8 @@ Selection.createCatcher(function(itemType, x, y)
 	end
 end)
 
+Hearts.createLayer()
+
 Hud.create()
 Toolbar.create()
 
@@ -62,8 +65,12 @@ local function returnToNow()
 	local didFullPass, elapsed = Garden.returnToNow()
 	if didFullPass then
 		WelcomeCard.show(elapsed)
+	else
+		Garden.startHeldEggs()
 	end
 end
+-- A held egg is laid a little after the welcome-back card closes (ADR-0029).
+WelcomeCard.onHidden(Garden.startHeldEggs)
 returnToNow()
 
 timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
@@ -73,6 +80,7 @@ timer.performWithDelay(AUTOSAVE_INTERVAL, Garden.save, 0)
 Runtime:addEventListener("system", function(event)
 	if event.type == "applicationExit" or event.type == "applicationSuspend" then
 		Selection.clear()
+		Garden.landHeldEggs()
 		Garden.save()
 	elseif event.type == "applicationResume" then
 		returnToNow()

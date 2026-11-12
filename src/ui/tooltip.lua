@@ -270,6 +270,11 @@ function Tooltip.show(content)
 	group:insert(contentGroup)
 
 	local function refresh()
+		-- Its item was used up (Feed and Treats mark it removed): close with it.
+		if content.source and content.source.removed then
+			Tooltip.hide()
+			return
+		end
 		for _, entry in ipairs(fills) do
 			-- Whole art px, so the bar stays on the pixel grid (ADR-0024).
 			local pixels = math.floor(BAR_WIDTH / Constants.PIXEL_SCALE * entry.getValue() / 100 + 0.5)
