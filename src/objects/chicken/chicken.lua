@@ -728,6 +728,12 @@ function Chicken:setTarget(newTarget)
 	self.target = newTarget
 end
 
+-- Eating or bathing in her claimed treat: it can't be picked up now.
+function Chicken:isUsingTreat()
+	local state = self.machine.name
+	return state == "eatTreat" or state == "bathe"
+end
+
 -- Gives up a treat the player just picked up; the treat alert re-claims
 -- one once it's placed again.
 function Chicken:abandonTarget()

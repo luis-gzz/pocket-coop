@@ -1,5 +1,7 @@
 local Constants = require("src.util.constants")
 local Frame = require("src.ui.frame")
+local Font = require("src.ui.font")
+local Color = require("src.util.color")
 
 -- The fixed-size square behind an item's icon (CONTEXT.md's Slot), shared by
 -- the toolbar, the barn view, and the HUD's barn button.
@@ -13,6 +15,10 @@ Slot.SIZE = 19 * Constants.PIXEL_SCALE
 local PADDING = 2 * Constants.PIXEL_SCALE
 
 local FLASH_TIME = 600 -- ms
+local OUT_FLASHES = 3
+local OUT_FLASH_TIME = 150 -- ms on, then off, per flash
+local COUNT_INSET = 2 -- art px from the frame's bottom-right edge
+local INK_HEX = "3a3858"
 
 -- Fits an item's icon into a square box of availableSize at a whole number
 -- of screen pixels per art pixel, never above world size (ADR-0020). Native
@@ -48,7 +54,9 @@ end
 -- A slot group with its top-left at (x, y), size defaulting to Slot.SIZE
 -- (snapped to whole art px). item (optional) is a catalog descriptor whose
 -- icon is drawn inside, kept as .icon. Its .background takes touch/tap
--- listeners; setSelected(bool) toggles the highlight, flash() pulses it once.
+-- listeners; setSelected(bool) toggles the highlight, flash() pulses it once,
+-- flashOut(onDone) flashes it red three times (out of stock), and
+-- setCount(n or nil) shows a stock count in the bottom-right corner.
 -- pixel (optional) is the art px size, world-sized by default.
 function Slot.new(parent, x, y, item, size, pixel)
 	size = Frame.snap(size or Slot.SIZE, pixel)
@@ -60,6 +68,8 @@ function Slot.new(parent, x, y, item, size, pixel)
 	group:insert(background)
 	Frame.new(background, 0, 0, size, size, "frame", pixel)
 	local highlight = Frame.new(background, 0, 0, size, size, "selected", pixel)
+	local outline = Frame.new(background, 0, 0, size, size, "out", pixel)
+	outline.isVisible = false
 	group.background = background
 	group.size = size
 
@@ -87,6 +97,43 @@ function Slot.new(parent, x, y, item, size, pixel)
 				refresh()
 			end
 		end)
+	end
+
+	local count = nil
+	function group.setCount(n)
+		if count then
+			count:removeSelf()
+			count = nil
+		end
+		if n then
+			local unit = pixel or Constants.PIXEL_SCALE
+			local fontSize = Constants.FONT_SIZE_SMALL
+			count = display.newText(group, tostring(n), 0, 0, Constants.FONT, fontSize)
+			count.anchorX = 1
+			count.x = size - COUNT_INSET * unit
+			Font.placeCapsAt(count, size - COUNT_INSET * unit - Font.capHeight(fontSize), fontSize)
+			count:setFillColor(Color.hexToRGB(INK_HEX))
+		end
+	end
+
+	function group.flashOut(onDone)
+		local step = 0
+		local function tick()
+			if not group.removeSelf then
+				return
+			end
+			step = step + 1
+			if step > OUT_FLASHES * 2 then
+				outline.isVisible = false
+				if onDone then
+					onDone()
+				end
+				return
+			end
+			outline.isVisible = step % 2 == 1
+			timer.performWithDelay(OUT_FLASH_TIME, tick)
+		end
+		tick()
 	end
 
 	refresh()

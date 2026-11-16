@@ -25,6 +25,7 @@ Placement.register(function()
 	return items
 end)
 local onSave = nil
+local onReturn = nil
 
 local function save()
 	if onSave then
@@ -34,6 +35,11 @@ end
 
 function Treats.setSaveCallback(fn)
 	onSave = fn
+end
+
+-- fn(itemType), when a treat is dropped on the toolbar to go back in stock.
+function Treats.setReturnCallback(fn)
+	onReturn = fn
 end
 
 local function removeItem(item)
@@ -61,6 +67,14 @@ local function createItem(itemType, x, y)
 		claimedBy = nil,
 		removed = false,
 	}
+	-- Dropped on the toolbar: off the map and back into stock.
+	function item.returnToStock()
+		removeItem(item)
+		save()
+		if onReturn then
+			onReturn(itemType)
+		end
+	end
 	def.new(item, function(dropX, dropY)
 		local finalX, finalY = Placement.compute(item.width, item.height, dropX, dropY, item)
 		if finalX then

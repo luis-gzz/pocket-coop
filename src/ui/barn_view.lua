@@ -210,6 +210,7 @@ local function buildGrid()
 			}
 			table.insert(current.cells, cell)
 			if itemType then
+				cell.slot.setCount(Inventory.count(itemType))
 				addDrag(cell)
 			end
 		end
@@ -222,7 +223,8 @@ end
 -- Slot size and column positions that fit the safe area. The divider gap
 -- widens so the "Toolbar" heading, centered over its column, never crosses it.
 local function computeLayout(bounds, headingHeight, toolbarHeadingWidth)
-	local gridTop = Layout.getHudRect().maxY + HEADING_GAP + headingHeight + HEADING_GAP
+	-- Under the HUD, which moves to the top in this view (ADR-0031).
+	local gridTop = Layout.getViewHudRect().maxY + HEADING_GAP + headingHeight + HEADING_GAP
 	local availableHeight = bounds.maxY - SCREEN_MARGIN - gridTop
 	local widestGap = math.max(DIVIDER_GAP, toolbarHeadingWidth + HEADING_GAP * 2)
 	local availableWidth = bounds.maxX - bounds.minX - SCREEN_MARGIN * 2 - widestGap
@@ -247,7 +249,7 @@ end
 
 -- Same size and spot as the barn button that opened the view.
 local function drawCloseButton(root)
-	local rect = Layout.getHudRect()
+	local rect = Layout.getViewHudRect()
 	local button = Slot.new(root, rect.minX, rect.minY, nil, rect.size, rect.pixel)
 	Slot.drawPixelIcon(button, CLOSE_ICON_PATH, CLOSE_ICON_PIXELS,
 		math.floor((Layout.HUD_PIXELS - CLOSE_ICON_PIXELS) / 2), rect.pixel)

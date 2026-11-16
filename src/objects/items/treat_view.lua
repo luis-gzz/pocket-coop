@@ -4,6 +4,7 @@ local Tooltip = require("src.ui.tooltip")
 local Selection = require("src.ui.selection")
 local DragLift = require("src.util.drag_lift")
 local Shadow = require("src.objects.shadow")
+local DropZone = require("src.ui.drop_zone")
 
 -- The view + drag side shared by every treat (CONTEXT.md's Treat): a
 -- sprite that a long press picks up and drags, and a short tap opens its
@@ -53,10 +54,15 @@ function TreatView.new(item, opts, resolveDrop)
 	local originalX, originalY
 	local lift = nil
 	local wiggleHandle = nil
+	local homeGroup = view.parent
 
 	local function moveTo(x, y)
 		view.x, view.y = x, y
 		item.x, item.y = x, y
+	end
+
+	local function overToolbar()
+		return DropZone.contains(view.x, view.y + item.height / 2)
 	end
 
 	local function beginDrag(startX, startY)
@@ -67,7 +73,12 @@ function TreatView.new(item, opts, resolveDrop)
 			item.claimedBy:abandonTarget()
 		end
 		originalX, originalY = item.x, item.y
-		lift = DragLift.begin(view.x, view.y, startX, startY, item.height / 2, moveTo)
+		-- Lifted above the UI while dragged, so it shows over the toolbar.
+		display.getCurrentStage():insert(view)
+		lift = DragLift.begin(view.x, view.y, startX, startY, item.height / 2, function(x, y)
+			moveTo(x, y)
+			DropZone.setHover(overToolbar())
+		end)
 		wiggleHandle = Wiggle.start(sprite, WIGGLE_ANGLE, WIGGLE_STEP_TIME, function()
 			return isDragging
 		end)
@@ -91,7 +102,8 @@ function TreatView.new(item, opts, resolveDrop)
 			local startX, startY = event.x, event.y
 			longPressHandle = timer.performWithDelay(LONG_PRESS_TIME, function()
 				longPressHandle = nil
-				if pendingTouch then
+				-- One a hen is already eating or bathing in stays hers.
+				if pendingTouch and not (item.claimedBy and item.claimedBy:isUsingTreat()) then
 					beginDrag(startX, startY)
 					pendingTouch = false
 				end
@@ -123,6 +135,12 @@ function TreatView.new(item, opts, resolveDrop)
 					lift = nil
 					-- Releasing in place synthesizes a tap; don't let it close a tooltip.
 					Tooltip.ignoreNextTap()
+					DropZone.setHover(false)
+					if event.phase == "ended" and overToolbar() then
+						item.returnToStock()
+						return true
+					end
+					homeGroup:insert(view)
 					local finalX, finalY
 					if event.phase == "ended" then
 						finalX, finalY = resolveDrop(view.x, view.y)

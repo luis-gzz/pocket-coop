@@ -23,6 +23,7 @@ Ash.DESCRIPTOR = {
 	width = Ash.WIDTH,
 	height = Ash.HEIGHT,
 	type = "ash", name = "Ash bath",
+	section = "treats", description = "A dust bath that cleans her up.",
 }
 
 local TOOLTIP = {

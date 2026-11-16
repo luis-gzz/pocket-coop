@@ -16,7 +16,8 @@ Mealworm.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
 -- the payoff.
 Mealworm.GAUGE = "satiety"
 Mealworm.AMOUNT = 25
-Mealworm.DESCRIPTOR = { icon = IMAGE_PATH, width = Mealworm.WIDTH, height = Mealworm.HEIGHT, type = "mealworm", name = "Mealworm" }
+Mealworm.DESCRIPTOR = { icon = IMAGE_PATH, width = Mealworm.WIDTH, height = Mealworm.HEIGHT, type = "mealworm", name = "Mealworm",
+	section = "treats", description = "A treat that fills her up a little." }
 
 -- Share of the worm's width a peck point may land in.
 local PECK_SPAN = 0.6

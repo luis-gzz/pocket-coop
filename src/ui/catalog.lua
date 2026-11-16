@@ -1,3 +1,4 @@
+local Tuning = require("src.systems.tuning")
 local Bed = require("src.objects.items.bed")
 local SeedPatch = require("src.objects.items.seed_patch")
 local Lettuce = require("src.objects.items.lettuce")
@@ -12,7 +13,7 @@ local Watermelon = require("src.objects.items.watermelon")
 -- own item file, so toolbar.lua never needs to require Garden/Feed just to
 -- know what's placeable. Adding a new placeable item later is one more line
 -- here plus its own item file.
-return {
+local Catalog = {
 	Bed.DESCRIPTOR,
 	WaterBowl.DESCRIPTOR,
 	Bucket.DESCRIPTOR,
@@ -22,3 +23,9 @@ return {
 	Watermelon.DESCRIPTOR,
 	Ash.DESCRIPTOR,
 }
+-- Tools (the bucket) have no price and never run out (CONTEXT.md's Tool).
+for _, item in ipairs(Catalog) do
+	item.price = Tuning.PRICES[item.type]
+end
+
+return Catalog

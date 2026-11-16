@@ -10,6 +10,7 @@ local STYLES = {
 	selected = "assets/ui/frame_selected.png",
 	button = "assets/ui/frame_button.png",
 	backing = "assets/ui/frame_backing.png",
+	out = "assets/ui/frame_out.png",
 }
 
 local sheets = {}

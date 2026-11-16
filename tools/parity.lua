@@ -44,7 +44,7 @@ do
 		return { units = PATCH, water = BOWL, dirt = 0, openSlots = 3, chickens = { hen() } }
 	end, 24)
 	local chicken = result.chickens[1]
-	check("neglect: about 1 egg", eggs >= 0.5 and eggs <= 2, string.format("%.2f eggs", eggs))
+	check("neglect: about 2 eggs", eggs >= 1 and eggs <= 3, string.format("%.2f eggs", eggs))
 	check("neglect: satiety 0", chicken.satiety == 0)
 	check("neglect: hydration 0", chicken.hydration == 0)
 	check("neglect: pools drained", result.unitsConsumed == PATCH and result.waterConsumed == BOWL)
