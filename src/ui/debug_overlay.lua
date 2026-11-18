@@ -6,6 +6,7 @@ local Garden = require("src.systems.garden")
 local Chicken = require("src.objects.chicken.chicken")
 local WelcomeCard = require("src.ui.welcome_card")
 local Selection = require("src.ui.selection")
+local Cursor = require("src.ui.cursor")
 
 -- Corner debug popover: time-scale presets, plus skip buttons that run real
 -- catch-up for a fake absence. Owns no game logic.
@@ -139,7 +140,11 @@ function DebugOverlay.create()
 			hidePopover()
 			Garden.debugHeldEggAlways = not Garden.debugHeldEggAlways
 		end, rowWidth)
-		addButton(0, 6 * (BUTTON_HEIGHT + BUTTON_GAP), "+100 coins", function()
+		addButton(0, 6 * (BUTTON_HEIGHT + BUTTON_GAP), Cursor.enabled and "Cursor: on" or "Cursor: off", function()
+			hidePopover()
+			Cursor.setEnabled(not Cursor.enabled)
+		end, rowWidth)
+		addButton(0, 7 * (BUTTON_HEIGHT + BUTTON_GAP), "+100 coins", function()
 			Wallet.add(100)
 		end, rowWidth)
 

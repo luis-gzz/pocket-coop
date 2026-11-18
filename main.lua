@@ -21,6 +21,7 @@ local Selection = require("src.ui.selection")
 local Hearts = require("src.objects.hearts")
 local Save = require("src.systems.save")
 local DebugOverlay = require("src.ui.debug_overlay")
+local Cursor = require("src.ui.cursor")
 local WelcomeCard = require("src.ui.welcome_card")
 
 local AUTOSAVE_INTERVAL = 20 * 1000 -- ms
@@ -57,6 +58,7 @@ Toolbar.create()
 
 if DEBUG_MODE then
 	DebugOverlay.create()
+	Cursor.create()
 end
 
 -- Catches up for time away and shows the welcome-back card after a full
