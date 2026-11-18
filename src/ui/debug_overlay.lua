@@ -1,6 +1,7 @@
 local Clock = require("src.systems.clock")
 local Constants = require("src.util.constants")
 local Font = require("src.ui.font")
+local Wallet = require("src.systems.wallet")
 local Garden = require("src.systems.garden")
 local Chicken = require("src.objects.chicken.chicken")
 local WelcomeCard = require("src.ui.welcome_card")
@@ -137,6 +138,9 @@ function DebugOverlay.create()
 		addButton(0, 5 * (BUTTON_HEIGHT + BUTTON_GAP), Garden.debugHeldEggAlways and "Force held egg: on" or "Force held egg: off", function()
 			hidePopover()
 			Garden.debugHeldEggAlways = not Garden.debugHeldEggAlways
+		end, rowWidth)
+		addButton(0, 6 * (BUTTON_HEIGHT + BUTTON_GAP), "+100 coins", function()
+			Wallet.add(100)
 		end, rowWidth)
 
 		current = { dismiss = dismiss, group = group }

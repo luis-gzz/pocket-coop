@@ -51,7 +51,7 @@ Tuning.POOP_PER_HOUR = 0.5 -- one every ~2 h
 Tuning.POOP_RATE = Tuning.POOP_PER_HOUR / HOUR
 
 -- Egg laying.
-Tuning.LAY_BASE_PER_HOUR = 1 / 4
+Tuning.LAY_BASE_PER_HOUR = 1 / 2.5
 Tuning.LAY_HAPPINESS_GATE = 33
 Tuning.LAY_SATIETY_GATE = 10 -- lay gates (ADR-0026): this and DEHYDRATED_BELOW
 Tuning.LAY_FULL_RATE_HAPPINESS = 75
@@ -74,6 +74,18 @@ Tuning.THRESHOLD_JITTER = { min = 0.8, max = 1.2 }
 Tuning.OFFLINE_CAP = 24 * HOUR
 Tuning.OFFLINE_STEP = 5 * 60
 Tuning.OFFLINE_THRESHOLD = 10 * 60
+
+-- Shop prices in coins (CONTEXT.md's Price); tools have none.
+Tuning.EGG_PRICE = 5
+Tuning.PRICES = {
+	seed_patch = 1,
+	lettuce = 2,
+	mealworm = 4,
+	watermelon = 4,
+	ash = 4,
+	bed = 45,
+	water_bowl = 30,
+}
 
 function Tuning.randomIn(range)
 	return range.min + math.random() * (range.max - range.min)

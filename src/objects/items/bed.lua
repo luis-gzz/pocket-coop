@@ -19,7 +19,8 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 27, 18
 
 Bed.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 Bed.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed", name = "Hen bed", fixture = true }
+Bed.DESCRIPTOR = { icon = IMAGE_PATH, width = Bed.WIDTH, height = Bed.HEIGHT, type = "bed", name = "Hen bed", fixture = true,
+	section = "fixtures", description = "A nest for laying. Holds three eggs." }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 Bed.FOOTPRINT_SHARE = 0.25

@@ -11,7 +11,7 @@ Bucket.DESCRIPTOR = {
 	icon = IMAGE_PATH,
 	width = NATIVE_WIDTH * Constants.PIXEL_SCALE,
 	height = NATIVE_HEIGHT * Constants.PIXEL_SCALE,
-	type = "bucket", name = "Bucket",
+	type = "bucket", name = "Bucket", tool = true,
 }
 
 return Bucket

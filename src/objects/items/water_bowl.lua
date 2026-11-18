@@ -21,7 +21,8 @@ local NATIVE_WIDTH, NATIVE_HEIGHT = 21, 13
 
 WaterBowl.WIDTH = NATIVE_WIDTH * Constants.PIXEL_SCALE
 WaterBowl.HEIGHT = NATIVE_HEIGHT * Constants.PIXEL_SCALE
-WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl", name = "Water bowl", fixture = true }
+WaterBowl.DESCRIPTOR = { icon = FULL_PATH, width = WaterBowl.WIDTH, height = WaterBowl.HEIGHT, type = "water_bowl", name = "Water bowl", fixture = true,
+	section = "fixtures", description = "Holds about 16 hours of water for one hen." }
 
 -- Share of its height above the footprint (CONTEXT.md's Footprint).
 WaterBowl.FOOTPRINT_SHARE = 0.25

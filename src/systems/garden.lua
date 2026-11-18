@@ -8,6 +8,7 @@ local Feed = require("src.systems.feed")
 local Treats = require("src.systems.treats")
 local Bowls = require("src.systems.bowls")
 local Inventory = require("src.systems.inventory")
+local Wallet = require("src.systems.wallet")
 local DropZone = require("src.ui.drop_zone")
 local Fixtures = require("src.systems.fixtures")
 local Footprints = require("src.systems.footprints")
@@ -32,6 +33,16 @@ local Garden = {}
 -- every bed is full, so an overflow egg still lands near a bed rather than
 -- anywhere in the play area.
 local FLOOR_LAY_RADIUS = 3 * Constants.TILE_SIZE
+
+-- Bumped when the save's shape changes, so loading can migrate older files.
+-- 2: stock and coins.
+local SAVE_VERSION = 2
+
+-- Placeholder grant until the starter kit (p1 economy plan). A save from
+-- before stock gets the same, minus the fixtures it already has on the map.
+local NEW_GAME_STOCK = { bed = 1, water_bowl = 1, seed_patch = 10, mealworm = 3, watermelon = 3, ash = 3 }
+local OLD_SAVE_STOCK = { seed_patch = 10, mealworm = 3, watermelon = 3, ash = 3 }
+local START_COINS = 30
 
 local chickens = {} -- array of Chicken instances
 -- occupant: the hen standing on it, if any.
@@ -147,6 +158,8 @@ end
 function Garden.save()
 	lastUpdate = os.time()
 	Save.write({
+		version = SAVE_VERSION,
+		wallet = Wallet.getSaveData(),
 		garden = Garden.getSaveData(),
 		feed = Feed.getSaveData(),
 		treats = Treats.getSaveData(),
@@ -157,6 +170,27 @@ end
 
 function Garden.getCollectedCount()
 	return collectedCount
+end
+
+-- Sells n eggs from the stash for coins (CONTEXT.md's Sell tab).
+function Garden.sellEggs(n)
+	n = math.min(n, collectedCount)
+	if n <= 0 then
+		return
+	end
+	collectedCount = collectedCount - n
+	Wallet.add(n * Tuning.EGG_PRICE)
+end
+
+-- What the buy panel shows as owned: stock, plus placed fixtures (CONTEXT.md's Own).
+function Garden.getOwned(itemType)
+	local placed = 0
+	if itemType == "bed" then
+		placed = #beds
+	elseif itemType == "water_bowl" then
+		placed = Bowls.getCount()
+	end
+	return (Inventory.count(itemType) or 0) + placed
 end
 
 -- The garden-wide dirt every chicken's cleanliness eases toward (CONTEXT.md's
@@ -199,10 +233,10 @@ function Garden.removeDropping(view)
 	Garden.save()
 end
 
--- A fixture dropped on the toolbar goes back into the inventory, and the
+-- A fixture or treat dropped on the toolbar goes back into stock, and the
 -- slot it ends up in (or the barn button) flashes.
 local function returnToInventory(itemType)
-	DropZone.landed(Inventory.returnItem(itemType))
+	DropZone.landed(Inventory.add(itemType, 1))
 end
 
 local returnBed -- defined after Garden.collectEgg
@@ -346,7 +380,7 @@ end
 -- The toolbar's single placement entry point, dispatched by item type -
 -- validity-checking and placement-commit both happen here (or inside Feed /
 -- Treats), never in the item's own file. Returns true/false.
-function Garden.tryPlace(itemType, x, y)
+local function place(itemType, x, y)
 	if itemType == "bed" then
 		local finalX, finalY = Garden.resolveBedPlacement(x, y)
 		if not finalX then
@@ -360,6 +394,18 @@ function Garden.tryPlace(itemType, x, y)
 		return Bowls.tryRefill(x, y)
 	end
 	return Feed.tryPlace(itemType, x, y) or Treats.tryPlace(itemType, x, y)
+end
+
+-- A placement takes one from stock; the bucket never runs out.
+function Garden.tryPlace(itemType, x, y)
+	if Inventory.count(itemType) == 0 then
+		return false
+	end
+	local placed = place(itemType, x, y)
+	if placed then
+		Inventory.consume(itemType)
+	end
+	return placed
 end
 
 -- Steps every chicken through the normal update path and collects its
@@ -649,13 +695,19 @@ function Garden.load(saved)
 	Feed.setSaveCallback(Garden.save)
 	Treats.load(saved.treats, saved.feed and saved.feed.treats)
 	Treats.setSaveCallback(Garden.save)
+	Treats.setReturnCallback(returnToInventory)
 	Bowls.load(saved.bowls)
 	Bowls.setSaveCallback(Garden.save)
 	Bowls.setReturnCallback(function()
 		returnToInventory("water_bowl")
 	end)
-	Inventory.load(saved.inventory)
+	-- No file is a new game; a file without a version predates stock and coins.
+	local isNewGame = next(saved) == nil
+	local isOldSave = not isNewGame and saved.version == nil
+	Inventory.load(saved.inventory, isNewGame and NEW_GAME_STOCK or isOldSave and OLD_SAVE_STOCK or nil)
 	Inventory.setSaveCallback(Garden.save)
+	Wallet.load(saved.wallet, (isNewGame or isOldSave) and START_COINS or 0)
+	Wallet.setSaveCallback(Garden.save)
 
 	collectedCount = savedGarden.collectedCount or 0
 	lastUpdate = savedGarden.lastUpdate

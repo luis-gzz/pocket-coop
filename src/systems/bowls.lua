@@ -90,6 +90,10 @@ function Bowls.tryPlace(x, y)
 end
 
 -- Whether any bowl a chicken could drink from right now holds water.
+function Bowls.getCount()
+	return #bowls
+end
+
 function Bowls.hasWater()
 	for _, bowl in ipairs(bowls) do
 		if not bowl.dragging and hasWater(bowl) then

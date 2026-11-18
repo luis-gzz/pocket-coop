@@ -50,6 +50,8 @@ function Toolbar.create()
 
 	local strip = nil
 	local slots = {} -- [index] = slot group
+	-- [index] = item type that just ran out there, still drawn while it flashes red.
+	local leaving = {}
 
 	local scrollOffset = 0
 	local maxScroll = math.max(0, SLOT_MARGIN * 2 + Inventory.TOOLBAR_SLOTS * Slot.SIZE
@@ -101,7 +103,8 @@ function Toolbar.create()
 		return band.minX + SLOT_MARGIN + (index - 1) * (Slot.SIZE + SLOT_GAP)
 	end
 
-	local function build()
+	local build
+	build = function()
 		if strip then
 			strip:removeSelf()
 		end
@@ -112,8 +115,23 @@ function Toolbar.create()
 
 		for index = 1, Inventory.TOOLBAR_SLOTS do
 			local itemType = Inventory.get("toolbar", index)
-			local slot = Slot.new(strip, slotX(index), band.maxY - SLOT_BOTTOM_MARGIN - Slot.SIZE, itemsByType[itemType])
+			if itemType then
+				leaving[index] = nil
+			end
+			local shown = itemType or leaving[index]
+			local slot = Slot.new(strip, slotX(index), band.maxY - SLOT_BOTTOM_MARGIN - Slot.SIZE, itemsByType[shown])
 			slots[index] = slot
+			if leaving[index] then
+				slot.setCount(0)
+			elseif itemType then
+				slot.setCount(Inventory.count(itemType))
+			end
+			if leaving[index] then
+				slot.flashOut(function()
+					leaving[index] = nil
+					build()
+				end)
+			end
 			-- An empty slot deselects, the same as tapping the selected one.
 			addTouch(slot.background, function()
 				Selection.set(itemType ~= Selection.get() and itemType or nil)
@@ -137,6 +155,17 @@ function Toolbar.create()
 			scrollTo(bandWidth - right)
 		end
 		slots[index].flash()
+	end)
+
+	-- Out of stock: deselect it, and keep its icon up while the slot flashes red.
+	Inventory.onRanOut(function(area, index, itemType)
+		if Selection.get() == itemType then
+			Selection.clear()
+		end
+		if area == "toolbar" then
+			leaving[index] = itemType
+			build()
+		end
 	end)
 
 	build()

@@ -1,0 +1,7 @@
+# Items have stock and leave their slot when they run out
+
+Amends ADR-0023, where items were infinite and had no counts. Eggs needed a use and care needed a cost, so every item except a tool now has a stock count, bought with coins in the shop. Placing an item takes one from stock, and taking a fixture or treat back off the map adds one. When the count reaches zero, the item leaves its slot, so an empty slot means "you have none". The alternative was a greyed slot showing 0, which keeps the player's arrangement but fills the toolbar with things they can't use. We chose emptying the slot: the slot flashes red three times first, so the player sees the item go. Getting more of an item that isn't in a slot puts it in the first open toolbar slot, else the barn, with the same flash as a returned fixture. Its old slot isn't remembered.
+
+The item popup's "Own" counts stock plus placed fixtures, because a bed on the map is still the player's. Placed food and treats don't count: a hen eats them, so "Own" would drop on its own. A treat can be dragged back to stock until a hen starts eating it or bathing in it. From then on it's hers, so the player can't snatch it back mid-bite. Food sources can't be put back at all, since they may be part-eaten.
+
+Saves now carry a version number. A save without one predates stock: it gets a grant of stock and coins without the bed and bowl, which the player already has on the map.
