@@ -133,6 +133,10 @@ The single source of simulated time every chicken's gauges advance against, repl
 **Time scale**:
 A debug-only multiplier the Clock applies to every gauge's rate-of-change, used to compress real time for testing (e.g. a minute of decay in one second). Never present in a real play session.
 
+**Cursor**:
+A debug-only hand drawn where the player is touching, for recording videos of the game. Off by default and switched on from the debug menu; it follows the finger while it's down and lingers briefly after release. Never present in a real play session.
+_Avoid_: Pointer, touch hand
+
 **World object**:
 An entity that lives in the game world, as opposed to the ground or screen-space UI (the tooltip, the debug button, the egg counter, the toolbar), which always render in their own fixed layers — currently the chicken, its droppings, fixtures, eggs, food sources, and treats, with more object types expected later. Most world objects (the chicken, its droppings, eggs, hen beds, water bowls, mealworms, watermelon slices, lettuce) are depth-sorted against each other in the main sort; seed patches and ash instead render in the floor layer, always behind every object in the main sort regardless of position (see Floor layer).
 _Avoid_: Entity, game object (too generic — use world object specifically for things that live in the game world)
